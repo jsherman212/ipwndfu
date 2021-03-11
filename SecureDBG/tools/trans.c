@@ -69,8 +69,33 @@ static void l2_block_describe(uint64_t vaddr){
         printf("%s: this L2 TTE is not a block!\n", __func__);
         return;
     }
+    
+    printf("\tL2 block entry at %p", l2_ttep);
 
-    printf("\tL2 block entry %p: %#llx\n", l2_ttep, l2_tte);
+    if(*l2_ttep == 0)
+        printf(": no TTE for [%#llx, %#llx)\n", vaddr, vaddr + 0x2000000);
+    else{
+        /* 32 MB block mapping */
+        uint64_t phys = l2_tte & ARM_TTE_BLOCK_L2_MASK;
+        uint64_t phys_end = phys + 0x2000000;
+
+        char perms[4];
+        strcpy(perms, "---");
+
+        uint32_t ap = l2_tte & ARM_PTE_APMASK;
+
+        /* No EL0 yet */
+        if(ap == AP_RWNA)
+            strcpy(perms, "rw");
+        else
+            strcpy(perms, "r-");
+
+        if(!(l2_tte & ARM_PTE_PNX))
+            perms[2] = 'x';
+
+        printf(" for [%#llx, %#llx): %#llx %s\n", phys, phys_end,
+                l2_tte, perms);
+    }
 }
 
 int main(int argc, char **argv){
@@ -104,7 +129,6 @@ int main(int argc, char **argv){
             return 1;
         }
 
-        printf("%#llx:\n", vaddr);
         l2_block_describe(vaddr);
         free(vaddr_s);
     }

