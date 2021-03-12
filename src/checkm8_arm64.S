@@ -21,32 +21,16 @@ _main:
     ; our code
     mov x0, #0x180000000
     mov x1, x0
+    mov x3, x0
     movk x0, #0xc408
     movk x1, #0x625
     str x1, [x0]
-    mov x0, #0x100000000
-    movk x0, #0x8340
-    movk x0, #0x201, lsl #16
-    ; brk #0
-    ; mov w1, #0xd4200000
-    ; str w1, [x0]
-
-    ; b .
-    ; mov w1, #0x14000000
-    ; str w1, [x0]
-
-    ; ret
-    mov w1, #0x03c0
-    movk w1, #0xd65f, lsl #16
-    str w1, [x0]
 
     dsb sy
     isb sy
     tlbi vmalle1
     dsb sy
     isb sy
-
-    blr x0
 
   LDR  X0, =gUSBDescriptors
   LDP  X0, X1, [X0]
@@ -83,7 +67,7 @@ find_zero_loop:
   LDR  X3, =PAYLOAD_SIZE
   LDR  X4, =PAYLOAD_PTR
   ADD  X5, X0, #0x18
-  STR  X5, [X4]
+  STR  X5, [X4]         ; XXX set interface request pointer to our code
 
 copy_loop:
   LDP  X3, X4,  [X1]

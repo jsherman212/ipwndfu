@@ -1,5 +1,6 @@
 import struct, sys
 import dfu, device_platform
+import utilities
 
 class ExecConfig:
   def __init__(self, info, aes_crypto_cmd):
@@ -87,6 +88,7 @@ class PwnedUSBDevice():
     while len(data) < length:
       part_length = min(length - len(data), USB_READ_LIMIT - self.cmd_data_offset(0))
       response = self.command(self.cmd_memcpy(self.cmd_data_address(0), address + len(data), part_length), self.cmd_data_offset(0) + part_length)
+
       assert response[:8] == DONE_MAGIC
       data += response[self.cmd_data_offset(0):]
     return data
@@ -100,12 +102,19 @@ class PwnedUSBDevice():
     device.ctrl_transfer(0xA1, 3, 0, 0, 6, 100)
     device.ctrl_transfer(0xA1, 3, 0, 0, 6, 100)
     dfu.send_data(device, request_data)
+    # address = 0
+    # for line in utilities.hex_dump(request_data, address).splitlines():
+    #     print '%x: %s' % (address, line[10:])
+    #     address += 16
+    # print(request_data)
+    # self.hexdump(0, request_data)
 
     # HACK
     if response_length == 0:
       response = device.ctrl_transfer(0xA1, 2, 0xFFFF, 0, response_length + 1, CMD_TIMEOUT).tostring()[1:]
     else:
       response = device.ctrl_transfer(0xA1, 2, 0xFFFF, 0, response_length, CMD_TIMEOUT).tostring()
+      # print(response)
     dfu.release_device(device)
     assert len(response) == response_length
     return response

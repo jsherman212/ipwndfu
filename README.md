@@ -7,7 +7,7 @@
 ## SecureDBG
 This fork contains a work in progress SecureROM (and maybe iBoot) debugger
 that's compatible with a normal iPhone + lightning cable. Only T8015 is
-supported for now
+supported for now. Pass `--dbg` to drop into the debugger to ipwndfu
 
 ### How it works
 - checkm8 exploit flow is the same (and not modified)
@@ -19,8 +19,13 @@ place our code
 0x340 bytes of that page, so we place the debugger code 0x340 bytes from the start
 and have 0x3cc0 unused bytes to work with (on T8015, but what about
 T8010?)
-- checkm8 shellcode branches to that code (and will return and set the
-USB descriptor string as usual)
+- checkm8 usb interface replacement code has been modified to initialize
+SecureDBG upon request `0xfffe`
+	- SecureDBG code is uploaded to device (and sits inside `io_buffer`)
+	- control transfer `0xfffe` is sent
+		- debugger code is copied from io_buffer to `0x102018340` on T8015
+		- branches to debugger entrypoint, also at `0x102018340`, and
+sends return value back as a response (0 == success, otherwise fail)
 
 ## checkm8
 
@@ -148,3 +153,4 @@ chronic, CPICH, ius, MuscleNerd, Planetbeing, pod2g, posixninja, et al. for 24Kp
 pod2g for steaks4uce exploit
 
 walac for pyusb
+

@@ -1,3 +1,4 @@
+    #define SecureDBG_cmd #0xfffe
 .text
 
 .pool
@@ -25,10 +26,51 @@ jump_back:
   MOV  X19, X0
   LDR  X20, =LOAD_ADDRESS
 
+    mov w1, SecureDBG_cmd
+    ldrh w2, [x19, #2]
+    cmp w1, w2
+    b.ne normal
+
+    ; X0 is the beginning of the free space we have after the boot trampoline
+    ; inside SRAM. We already uploaded the debugger code before issuing the
+    ; DFU abort, so it lives inside io_buffer. memcpy it to the free space.
+    ; X1 == io_buffer
+    mov x0, #0x100000000
+    mov x1, x0
+    movk x0, #0x8340
+    movk x0, #0x201, lsl #16
+    movk x1, #0x801e, lsl #16
+    movk x1, #0xc800
+    
+    ; !!! !!! !!! x2 NEEDS TO BE MODIFIED EVERY TIME WE MAKE A CHANGE TO
+    ; THE DEBUGGER CODE, how to automate?
+
+    ; XXX size of IO buffer
+    mov x2, #0x800
+    
+    ; the memcpy here does not modify x5
+    mov x5, x0
+    bl memcpy
+
+    ; prob need to clean caches as well if I dont want to have to re-dfu
+    ; every time I change debugger code
+    dsb sy
+    isb sy
+    tlbi vmalle1
+    dsb sy
+    isb sy
+
+    blr x5
+
+    stp x0, xzr, [x20]
+    b request_done
+
+normal:
   MOV  W1, #0xFFFF
   LDRH W2, [X19,#2]
   CMP  W1, W2
   BNE  request_done
+
 
   LDR  X0, [X20]                               ; X0 = LOAD_ADDRESS[0]
 
@@ -96,6 +138,8 @@ request_done:
   LDP  X29, X30, [SP],#0x10
   RET
 
+
+; save space in the payload TODO
 memset:
   MOV  X3, #0x101010101010101
   AND  X1, X1, #0xFF
@@ -138,49 +182,14 @@ memset_done:
   MOV  X0, X3
   RET 
 
+; save space in the payload
 memcpy:
-  MOV  X4, X0
+    ; end of src
+    add x3, x1, x2
 
-memcpy_8:
-  CMP  X2, #8
-  B.CC memcpy_4
-
-  LDR  X3, [X1]
-  STR  X3, [X0]
-  ADD  X0, X0, #8
-  ADD  X1, X1, #8
-  SUB  X2, X2, #8
-  B    memcpy_8
-
-memcpy_4:
-  CMP  X2, #4
-  B.CC memcpy_2
-
-  LDR  W3, [X1]
-  STR  W3, [X0]
-  ADD  X0, X0, #4
-  ADD  X1, X1, #4
-  SUB  X2, X2, #4
-
-memcpy_2:
-  CMP  X2, #2
-  B.CC memcpy_1
-  
-  LDRH W3, [X1]
-  STRH W3, [X0]
-  ADD  X0, X0, #2
-  ADD  X1, X1, #2
-  SUB  X2, X2, #2
-
-memcpy_1:
-  CBZ  X2, memcpy_done
-
-  LDRB W3, [X1]
-  STRB W3, [X0]
-  ADD  X0, X0, #1
-  ADD  X1, X1, #1
-  SUB  X2, X2, #1
-
-memcpy_done:
-  MOV  X0, X4
-  RET
+memcpy_loop:
+    ldrb w4, [x1], #1
+    strb w4, [x0], #1
+    subs xzr, x3, x1
+    b.ne memcpy_loop
+    ret

@@ -2,6 +2,7 @@ import sys, time
 import usb # pyusb: use 'pip install pyusb' to install this module
 import usb.backend.libusb1
 import libusbfinder
+import utilities
 
 MAX_PACKET_SIZE = 0x800
 
@@ -41,10 +42,15 @@ def usb_reset(device):
         #print 'Caught exception during port reset; should still work.'
 
 def send_data(device, data):
-    #print 'Sending 0x%x of data to device.' % len(data)
+    print 'Sending 0x%x of data to device.' % len(data)
     index = 0
+    address = 0x100
+    for line in utilities.hex_dump(data, address).splitlines():
+        print '%x: %s' % (address, line[10:])
+        address += 16
     while index < len(data):
         amount = min(len(data) - index, MAX_PACKET_SIZE)
+        print("amount: {}".format(hex(amount)))
         assert device.ctrl_transfer(0x21, 1, 0, 0, data[index:index + amount], 5000) == amount
         index += amount
 

@@ -16,6 +16,7 @@ def print_help():
     print '  -f file\t\t\tsend file to device in DFU Mode'
     print 'Advanced options:'
     print '  --demote\t\t\tdemote device to enable JTAG'
+    print '  --dbg\t\t\tdrop into SecureDBG'
     print '  --boot\t\t\tboot device'
     print '  --dump=address,length\t\tdump memory to stdout'
     print '  --hexdump=address,length\thexdump memory to stdout'
@@ -32,7 +33,7 @@ def print_help():
 
 if __name__ == '__main__':
     try:
-        advanced = ['demote', 'boot', 'dump=', 'hexdump=', 'dump-rom', 'dump-nor=', 'flash-nor=', '24kpwn', 'remove-24kpwn', 'remove-alloc8', 'decrypt-gid=', 'encrypt-gid=', 'decrypt-uid=', 'encrypt-uid=']
+        advanced = ['demote', 'boot', 'dbg', 'dump=', 'hexdump=', 'dump-rom', 'dump-nor=', 'flash-nor=', '24kpwn', 'remove-24kpwn', 'remove-alloc8', 'decrypt-gid=', 'encrypt-gid=', 'decrypt-uid=', 'encrypt-uid=']
         opts, args = getopt.getopt(sys.argv[1:], 'pxf:', advanced)
     except getopt.GetoptError:
         print 'ERROR: Invalid arguments provided.'
@@ -121,9 +122,10 @@ if __name__ == '__main__':
                 sys.exit(1)
 
             device = dfu.acquire_device()
-            dfu.reset_counters(device)
+            # XXX ROM panic if we reset counters before sending file
+            # dfu.reset_counters(device)
             dfu.send_data(device, data)
-            dfu.request_image_validation(device)
+            # dfu.request_image_validation(device)
             dfu.release_device(device)
 
         if opt == '--demote':
@@ -182,6 +184,20 @@ if __name__ == '__main__':
             dfu.release_device(device)
 
             if 'PWND:[checkm8]' in serial_number:
+                # dfu.send_data(device, '\A' * 16)
+                # device.ctrl_transfer(0x21, 1, 0, 0, 0, 100)
+                # device.ctrl_transfer(0xa1, 3, 0, 0, 6, 100)
+                # device.ctrl_transfer(0xa1, 3, 0, 0, 6, 100)
+                # This sent data gets put in SecureROM's io_buffer
+                # request_data = struct.pack("<8Q", 1,2,3,4,5,6,7,8)
+                # request_data = "A" * 0x100
+                # dfu.send_data(device, request_data)
+
+                # response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 16,
+                #         100).tostring()
+                # print(response)
+                # dump = response
+
                 device = usbexec.PwnedUSBDevice()
                 dump = device.read_memory(address, length)
                 for line in utilities.hex_dump(dump, address).splitlines():
@@ -191,7 +207,30 @@ if __name__ == '__main__':
                 device = PwnedDFUDevice()
                 dump = device.read_memory(address, length)
                 print utilities.hex_dump(dump, address),
+        if opt == '--dbg':
+            print("Wants SecureDBG")
 
+            try:
+                with open("SecureDBG/debugger.bin", 'rb') as f:
+                    dbgdata = f.read()
+            except IOError:
+                print 'ERROR: Could not read file:', arg
+                sys.exit(1)
+
+            device = dfu.acquire_device()
+            
+            # send debugger code
+            dfu.send_data(device, dbgdata)
+
+            # init SecureDBG
+            response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 100)
+
+            address = 0
+            for line in utilities.hex_dump(response, address).splitlines():
+                print '%x: %s' % (address, line[10:])
+                address += 16
+
+            dfu.release_device(device)
         if opt == '--dump-rom':
             device = dfu.acquire_device()
             serial_number = device.serial_number
