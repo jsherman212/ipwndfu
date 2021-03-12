@@ -4,6 +4,23 @@
 
 **Read [disclaimer](#disclaimer) before using this software.*
 
+## SecureDBG
+This fork contains a work in progress SecureROM (and maybe iBoot) debugger
+that's compatible with a normal iPhone + lightning cable. Only T8015 is
+supported for now
+
+### How it works
+- checkm8 exploit flow is the same (and not modified)
+- checkm8 shellcode is modified to insert a TTE that translates
+VA `0x102000000` to PA `0x180000000` (rwx) so we have a spot to
+place our code
+	- this needs to be done because T8010 exploit flow does not make an rwx view of SRAM, but one rw (original TTE) and rx (VA `0x182000000` -> PA `0x180000000`)
+- in SRAM, the boot tramp has an entire page dedicated to it. It only uses
+0x340 bytes of that page, so we place the debugger code 0x340 bytes from the start
+and have 0x3cc0 unused bytes to work with (on T8015, but what about
+T8010?)
+- checkm8 shellcode branches to that code (and will return and set the
+USB descriptor string as usual)
 
 ## checkm8
 

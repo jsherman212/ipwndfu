@@ -16,6 +16,38 @@ _main:
   STP  X29, X30, [SP,#-0x10]!
   MOV  X29, SP
 
+    ; Translate VA 0x102000000 to PA 0x180000000 so we have an rwx view
+    ; of the boot tramp page. We'll use the unused part of the page for
+    ; our code
+    mov x0, #0x180000000
+    mov x1, x0
+    movk x0, #0xc408
+    movk x1, #0x625
+    str x1, [x0]
+    mov x0, #0x100000000
+    movk x0, #0x8340
+    movk x0, #0x201, lsl #16
+    ; brk #0
+    ; mov w1, #0xd4200000
+    ; str w1, [x0]
+
+    ; b .
+    ; mov w1, #0x14000000
+    ; str w1, [x0]
+
+    ; ret
+    mov w1, #0x03c0
+    movk w1, #0xd65f, lsl #16
+    str w1, [x0]
+
+    dsb sy
+    isb sy
+    tlbi vmalle1
+    dsb sy
+    isb sy
+
+    blr x0
+
   LDR  X0, =gUSBDescriptors
   LDP  X0, X1, [X0]
   ADR  X2, USB_DESCRIPTOR
@@ -56,17 +88,21 @@ find_zero_loop:
 copy_loop:
   LDP  X3, X4,  [X1]
   STP  X3, X4,  [X0]
-  LDP  X3, X4,  [X1,#0x10]
-  STP  X3, X4,  [X0,#0x10]
-  LDP  X3, X4,  [X1,#0x20]
-  STP  X3, X4,  [X0,#0x20]
-  LDP  X3, X4,  [X1,#0x30]
-  STP  X3, X4,  [X0,#0x30]
+    ; make space
+  ; LDP  X3, X4,  [X1,#0x10]
+  ; STP  X3, X4,  [X0,#0x10]
+  ; LDP  X3, X4,  [X1,#0x20]
+  ; STP  X3, X4,  [X0,#0x20]
+  ; LDP  X3, X4,  [X1,#0x30]
+  ; STP  X3, X4,  [X0,#0x30]
   DC   CIVAC, X0
   DMB  SY
-  ADD  X0, X0, #0x40
-  ADD  X1, X1, #0x40
-  ADD  X2, X2, #0x40
+  ; ADD  X0, X0, #0x40
+  ; ADD  X1, X1, #0x40
+  ; ADD  X2, X2, #0x40
+  ADD  X0, X0, #0x10
+  ADD  X1, X1, #0x10
+  ADD  X2, X2, #0x10
   CMP  X2, X3
   B.CC copy_loop
 

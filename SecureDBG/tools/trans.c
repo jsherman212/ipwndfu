@@ -99,7 +99,9 @@ static void l2_block_describe(uint64_t vaddr){
 }
 
 int main(int argc, char **argv){
-    int fd = open("../../t8015_raw_ttes", O_RDONLY);
+    /* int fd = open("../../t8015_raw_ttes", O_RDONLY); */
+    /* int fd = open("../../t8015_raw_ttes_after_map_rw", O_RDONLY); */
+    int fd = open("../../t8015_raw_ttes_after_mapping_102000000", O_RDONLY);
 
     if(fd == -1){
         printf("open: %s\n", strerror(errno));
