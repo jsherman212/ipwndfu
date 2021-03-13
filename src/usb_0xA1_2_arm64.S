@@ -41,19 +41,23 @@ jump_back:
     movk x0, #0x201, lsl #16
     movk x1, #0x801e, lsl #16
     movk x1, #0xc800
-    
-    ; !!! !!! !!! x2 NEEDS TO BE MODIFIED EVERY TIME WE MAKE A CHANGE TO
-    ; THE DEBUGGER CODE, how to automate?
-
-    ; XXX size of IO buffer
+    ; size of IO buffer
+    ; TODO: once my code reaches more than 0x800 bytes, figure out
+    ; a system to do partial writes
     mov x2, #0x800
     
-    ; the memcpy here does not modify x5
+    ; Nothing past this point modifies x5
     mov x5, x0
     bl memcpy
 
-    ; prob need to clean caches as well if I dont want to have to re-dfu
-    ; every time I change debugger code
+    ; Clean/invalidate dcache/icache so we can change debugger code
+    ; and not have to re-DFU
+    ; These functions do not modify x0 and x1
+    mov x0, x5
+    mov w1, #0x800
+    bl dcache_clean_PoU
+    bl icache_invalidate_PoU
+
     dsb sy
     isb sy
     tlbi vmalle1
@@ -138,58 +142,53 @@ request_done:
   LDP  X29, X30, [SP],#0x10
   RET
 
-
-; save space in the payload TODO
+; save space in this payload
 memset:
-  MOV  X3, #0x101010101010101
-  AND  X1, X1, #0xFF
-  MUL  X1, X1, X3
-  MOV  X3, X0
-
-memset_8:
-  CMP  X2, #8
-  B.CC memset_4
-
-  STR  X1, [X0]
-  ADD  X0, X0, #8
-  SUB  X2, X2, #8
-  B    memset_8
-
-memset_4:
-  CMP  X2, #4
-  B.CC memset_2
-
-  STR  W1, [X0]
-  ADD  X0, X0, #4
-  SUB  X2, X2, #4
-
-memset_2:
-  CMP  X2, #2
-  B.CC memset_1
-
-  STR  W1, [X0]
-  ADD  X0, X0, #2
-  SUB  X2, X2, #2
-
-memset_1:
-  CBZ  X2, memset_done
-
-  STR  W1, [X0]
-  ADD  X0, X0, #1
-  SUB  X2, X2, #1
-
-memset_done:
-  MOV  X0, X3
-  RET 
+    add x3, x0, x2
+Lmemset_loop:
+    strb w1, [x0], #1
+    subs xzr, x3, x0
+    b.ne Lmemset_loop
+    ret
 
 ; save space in the payload
 memcpy:
     ; end of src
     add x3, x1, x2
 
-memcpy_loop:
+Lmemcpy_loop:
     ldrb w4, [x1], #1
     strb w4, [x0], #1
     subs xzr, x3, x1
-    b.ne memcpy_loop
+    b.ne Lmemcpy_loop
+    ret
+
+dcache_clean_PoU:
+    add x8, x1, #0x40
+    and x9, x8, #0xffffffffffffffc0
+    and x8, x0, #0xffffffffffffffc0
+    add x9, x9, x8
+    isb sy
+Ldcloop:
+    dc cvau, x8
+    dsb ish
+    isb sy
+    add x8, x8, #0x40
+    cmp x8, x9
+    b.lo Ldcloop
+    ret
+
+icache_invalidate_PoU:
+    add x8, x1, #0x40
+    and x9, x8, #0xffffffffffffffc0
+    and x8, x0, #0xffffffffffffffc0
+    add x9, x9, x8
+    isb sy
+Licloop:
+    ic ivau, x8
+    dsb ish
+    isb sy
+    add x8, x8, #0x40
+    cmp x8, x9
+    b.lo Licloop
     ret

@@ -1,4 +1,4 @@
-all: armv6 armv7 arm64
+all: armv6 armv7 arm64 SecureDBG
 
 armv6:
 	arm-none-eabi-as -march=armv6 -mthumb --fatal-warnings -o bin/steaks4uce-shellcode.o src/steaks4uce-shellcode.S
@@ -50,3 +50,8 @@ arm64:
 	xcrun -sdk iphoneos clang src/t8015_shellcode_arm64.S -target arm64-apple-darwin -Wall -o bin/t8015_shellcode_arm64.o
 	gobjcopy -O binary -j .text bin/t8015_shellcode_arm64.o bin/t8015_shellcode_arm64.bin
 	rm bin/t8015_shellcode_arm64.o
+
+SecureDBG : 
+	$(MAKE) -C SecureDBG
+
+.PHONY : SecureDBG
