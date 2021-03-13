@@ -64,18 +64,18 @@ static bool SecureDBG_init_flag = false;
  * USB interface callback to our own, set up a logging system, and kickstart
  * a debugger CPU. */
 uint64_t debugger_entryp(void){
-    uint64_t res = 0;
-    /* if(SecureDBG_init_flag) */
-    /*     return 0; */
+    if(SecureDBG_init_flag)
+        return 0;
 
-    res = loginit();
+    uint64_t res = loginit();
 
     if(res)
         return res;
 
-    dbglog("%s: hello from SecureROM!\n", __func__);
-
     debuggee_cpu = curcpu();
+
+    dbglog("%s: hello from SecureROM! We are CPU %d\n", __func__,
+            debuggee_cpu);
     
     /* Low powered caller? Low powered debugger */
     if(debuggee_cpu == 0)

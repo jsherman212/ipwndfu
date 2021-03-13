@@ -37,21 +37,12 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
     va_list args;
     va_start(args, fmt);
 
-    /* char msg[0x200]; */
-    /* vsnprintf(msg, sizeof(msg), fmt, args); */
-
     /* We do not copy nul terminators into the log. msgbuf has been
      * given logsz+1 bytes of memory so messages that are exactly the
      * log size are not truncated. */
-    /* XXX Panic */
     vsnprintf(msgbuf, logsz + 1, fmt, args);
-    /* XXX Panic when writing to the msgbuf?? */
-    /* *msgbuf = 'A'; */
-    /* *logbuf = 'A'; */
 
     va_end(args);
-
-    /* return; */
 
     char *msgp = msgbuf;
     size_t msglen = strlen(msgp);
@@ -163,19 +154,16 @@ uint64_t loginit(void){
     if(log_inited)
         return 0;
 
-    /* logbuf = alloc(logsz, 0x40); */
     logbuf = alloc2(logsz);
 
     if(!logbuf)
         return 1;
 
-    /* msgbuf = alloc(logsz + 1, 0x40); */
     msgbuf = alloc2(logsz + 1);
 
     if(!msgbuf)
         return 2;
 
-    /* retbuf = alloc(logsz, 0x40); */
     retbuf = alloc2(logsz);
 
     if(!retbuf)
@@ -185,10 +173,6 @@ uint64_t loginit(void){
     readp = writep = logbuf;
 
     log_inited = true;
-
-    /* return 0x41424344; */
-    /* return (uint64_t)logbuf; */
-    /* return alloc2(0x3c0); */
 
     return 0;
 }
