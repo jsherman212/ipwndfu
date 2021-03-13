@@ -109,7 +109,7 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
          *     for the rest of the message before the read pointer)
          */
         if(writep + msglen < logend){
-            memcpy(writep, msgp, msglen);
+            memmove(writep, msgp, msglen);
             writep += msglen;
             loglen += msglen;
             return;
@@ -131,7 +131,7 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
         /*         canwrite, pending, wrapspace); */
 
         /* Copy what we can to the end of the log buffer */
-        memcpy(writep, msgp, canwrite);
+        memmove(writep, msgp, canwrite);
 
         msgp += canwrite;
         writep += canwrite;
@@ -145,7 +145,7 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
         }
 
         /* Wrap around to the beginning */
-        memcpy(logbuf, msgp, pending);
+        memmove(logbuf, msgp, pending);
 
         writep = logbuf + pending;
         loglen += pending;
@@ -164,7 +164,7 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
         if(canwrite > msglen)
             canwrite = msglen;
 
-        memcpy(writep, msgp, canwrite);
+        memmove(writep, msgp, canwrite);
 
         writep += canwrite;
         loglen += canwrite;
@@ -187,18 +187,18 @@ char *getlog(size_t *lenp){
      * be less than readp. */
     if(writep > readp){
         size_t outsz = writep - readp;
-        memcpy(retbuf, readp, outsz);
+        memmove(retbuf, readp, outsz);
         /* printf("%s: copied [%p, %p)\n", __func__, readp, logbuf + outsz); */
         *lenp = outsz;
     }
     else{
         /* First, get the part covered by [readp, logend) */
         size_t firstsz = logend - readp;
-        memcpy(retbuf, readp, firstsz);
+        memmove(retbuf, readp, firstsz);
         /* printf("%s: copied [%p, %p)\n", __func__, readp, logend); */
         /* Second, get the part covered by [logbuf, writep) */
         size_t secondsz = writep - logbuf;
-        memcpy(retbuf + firstsz, logbuf, secondsz);
+        memmove(retbuf + firstsz, logbuf, secondsz);
         /* printf("%s: copied [%p, %p)\n", __func__, logbuf, writep); */
         *lenp = firstsz + secondsz;
     }

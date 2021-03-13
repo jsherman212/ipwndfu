@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "debugger_log.h"
 #include "SecureROM_offsets.h"
@@ -26,11 +27,11 @@ static uint8_t curcpu(void){
 }
 
 enum {
-    SecureDBG_LOG_READ = 0x10000,
+    SecureDBG_LOG_READ = 0x4000,
     SecureDBG_MAXREQ,
 };
 
-static bool is_SecureDBG_request(int req){
+static bool is_SecureDBG_request(uint16_t req){
     return req >= SecureDBG_LOG_READ && req < SecureDBG_MAXREQ;
 }
 
@@ -40,16 +41,19 @@ static bool is_SecureDBG_request(int req){
  * inside SecureROM, what about iBoot?) */
 static int SecureDBG_usb_interface_request_handler(struct usb_request_packet *req,
         void **bufoutp){
-    uint8_t request = req->bRequest;
+    uint16_t request = req->wValue;
 
-    /* probably not correct? Should this be a branch without link? */
+    dbglog("%s: got request %#x\n", __func__, request);
+
     if(!is_SecureDBG_request(request))
         return ipwndfu_usb_interface_request_handler(req, bufoutp);
 
-    /* if(request == SecureDBG_LOG_READ) */
-
-
-    /* Call usb_core_do_io */
+    if(request == SecureDBG_LOG_READ){
+        dbglog("%s: sending back log...\n", __func__);
+        size_t len = 0;
+        char *log = getlog(&len);
+        usb_core_do_io(0x80, log, req->wLength, NULL);
+    }
 
     return 0;
 }
@@ -59,14 +63,17 @@ static bool SecureDBG_init_flag = false;
 /* Called from src/usb_0xA1_2_arm64.S. Here we point SecureROM's global
  * USB interface callback to our own, set up a logging system, and kickstart
  * a debugger CPU. */
-int debugger_entryp(void){
+uint64_t debugger_entryp(void){
+    uint64_t res = 0;
     /* if(SecureDBG_init_flag) */
     /*     return 0; */
 
-    dbglog("%s: hello from SecureROM!\n", __func__);
+    res = loginit();
 
-    if(!loginit())
-        return 1;
+    if(res)
+        return res;
+
+    dbglog("%s: hello from SecureROM!\n", __func__);
 
     debuggee_cpu = curcpu();
     
@@ -77,12 +84,9 @@ int debugger_entryp(void){
     else
         debugger_cpu = 5;
 
-    /* *(uint64_t *)usb_interface_request_handler = SecureDBG_usb_interface_request_handler; */
-    /* *usb_interface_request_handler = SecureDBG_usb_interface_request_handler; */
-
     *(uint64_t *)usb_interface_request_handler = (uint64_t)SecureDBG_usb_interface_request_handler;
 
     SecureDBG_init_flag = true;
 
-    return 0;
+    return res;
 }

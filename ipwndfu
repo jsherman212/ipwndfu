@@ -6,6 +6,7 @@ import binascii, datetime, getopt, hashlib, struct, sys, time
 import dfu, nor, utilities
 import alloc8, checkm8, image3_24Kpwn, limera1n, SHAtter, steaks4uce, usbexec
 from dfuexec import *
+import subprocess
 
 def print_help():
     print 'USAGE: ipwndfu [options]'
@@ -217,18 +218,48 @@ if __name__ == '__main__':
                 print 'ERROR: Could not read file:', arg
                 sys.exit(1)
 
+            # Probably won't work on your machine. will figure out a
+            # universal way later
+            proc = subprocess.Popen('objdump -h ./SecureDBG/debugger | grep .text | cut -c 30-43', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            output = proc.stdout.read().decode('utf-8')
+            debugger_entryp = int(output, 16)
+            dbgcodesz = len(dbgdata)
+            print("debugger_entryp at {}".format(hex(debugger_entryp)))
+            print("debugger code size {}".format(hex(dbgcodesz)))
+
+            # We send the following:
+            #  [copy destination (8bytes)][copy size (4bytes)][debugger code]
+            dbgrequest = struct.pack("<QI2036s", debugger_entryp, dbgcodesz, dbgdata)
+            # address = debugger_entryp - 12
+            # for line in utilities.hex_dump(dbgrequest, address).splitlines():
+            #     print '%x: %s' % (address, line[10:])
+            #     address += 16
+
             device = dfu.acquire_device()
             
-            # send debugger code
-            dfu.send_data(device, dbgdata)
+            # dfu.send_data(device, dbgdata)
+            dfu.send_data(device, dbgrequest)
 
             # init SecureDBG
             response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 100)
 
-            address = 0
-            for line in utilities.hex_dump(response, address).splitlines():
-                print '%x: %s' % (address, line[10:])
-                address += 16
+            # address = 0
+            # for line in utilities.hex_dump(response, address).splitlines():
+            #     print '%x: %s' % (address, line[10:])
+            #     address += 16
+
+            response = device.ctrl_transfer(0xa1, 2, 0x4000, 0, 0x800, 100)
+
+            print("SecureDBG Log:")
+            # Hello from SecureROM!
+            print(bytearray(response))
+
+
+            # address = 0
+            # for line in utilities.hex_dump(response, address).splitlines():
+            #     print '%x: %s' % (address, line[10:])
+            #     address += 16
+            # print(response)
 
             dfu.release_device(device)
         if opt == '--dump-rom':

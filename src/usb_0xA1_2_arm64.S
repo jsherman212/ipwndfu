@@ -35,16 +35,14 @@ jump_back:
     ; inside SRAM. We already uploaded the debugger code before issuing the
     ; DFU abort, so it lives inside io_buffer. memcpy it to the free space.
     ; X1 == io_buffer
-    mov x0, #0x100000000
-    mov x1, x0
-    movk x0, #0x8340
-    movk x0, #0x201, lsl #16
+    mov x1, #0x100000000
     movk x1, #0x801e, lsl #16
     movk x1, #0xc800
-    ; size of IO buffer
-    ; TODO: once my code reaches more than 0x800 bytes, figure out
-    ; a system to do partial writes
-    mov x2, #0x800
+    ; We sent debugger_entryp and code size in the 12 bytes before
+    ; the actual code
+    ldr x0, [x1]
+    ldr w2, [x1, #0x8]
+    add x1, x1, #0xc
     
     ; Nothing past this point modifies x5
     mov x5, x0
