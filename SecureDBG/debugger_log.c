@@ -10,12 +10,13 @@ static char *logbuf = NULL;
 static char *logbufcursor = NULL;
 static size_t logsz = 2048;
 
-/* Yeah, will overflow if message ends up being over 0x200 bytes. TODO fix */
+/* Yeah, will not fit messages larger than 0x100 bytes, but stack space
+ * is limited */
 __printflike(1, 2) void dbglog(const char *fmt, ...){
     va_list args;
     va_start(args, fmt);
 
-    char msg[0x200];
+    char msg[0x100];
     vsnprintf(msg, sizeof(msg), fmt, args);
 
     va_end(args);
