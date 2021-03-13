@@ -127,7 +127,6 @@ not_memc:
 
   LDR  X8, =DONE_MAGIC
   STR  X8, [X20]
-  B    request_done
 
 request_done:
   MOV  W0, #0x80
@@ -151,7 +150,7 @@ Lmemset_loop:
     b.ne Lmemset_loop
     ret
 
-; save space in the payload
+; save space in this payload
 memcpy:
     ; end of src
     add x3, x1, x2
