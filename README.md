@@ -11,20 +11,20 @@ supported for now. Pass `--dbg` to drop into the debugger to ipwndfu
 
 ### How it works
 - checkm8 exploit flow is the same (and not modified)
-- checkm8 shellcode is modified to insert a TTE that translates
-VA `0x102000000` to PA `0x180000000` (rwx) so we have a spot to
-place our code
-	- this needs to be done because T8010 exploit flow does not make an rwx view of SRAM, but one rw (original TTE) and rx (VA `0x182000000` -> PA `0x180000000`)
-- in SRAM, the boot tramp has an entire page dedicated to it. It only uses
-0x340 bytes of that page, so we place the debugger code 0x340 bytes from the start
-and have 0x3cc0 unused bytes to work with (on T8015, but what about
-T8010?)
+- checkm8 shellcode is modified
+	- AOP SRAM is brought up (Thanks [Siguza](https://twitter.com/s1guza))
+	- A TTE is inserted that translates VA `0x934e00000` to PA `0x234e00000` for an rwx view of AOP SRAM
 - checkm8 usb interface replacement code has been modified to initialize
 SecureDBG upon request `0xfffe`
 	- SecureDBG code is uploaded to device (and sits inside `io_buffer`)
-	- control transfer `0xfffe` is sent
-		- debugger code is copied from io_buffer to `0x102018340` on T8015
-		- branches to debugger entrypoint, also at `0x102018340`, and
+in chunks
+	- control transfer `0xfffe` is sent. For each chunk:
+		- copy to AOP SRAM (+offset, if not first upload)
+	- when we're done copying all debugger code, branch to `debugger_entryp` @ `0x934e00000`
+		- sets up a logging system (retreive logs with ctrl transfer `0x4000`)
+		- brings up the debugger cpu, CPU5 (`TODO`)
+		- ...
+
 sends return value back as a response (0 == success, otherwise fail)
 
 ## checkm8

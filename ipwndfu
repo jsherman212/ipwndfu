@@ -7,6 +7,7 @@ import dfu, nor, utilities
 import alloc8, checkm8, image3_24Kpwn, limera1n, SHAtter, steaks4uce, usbexec
 from dfuexec import *
 import subprocess
+# import debugger
 
 def print_help():
     print 'USAGE: ipwndfu [options]'
@@ -220,39 +221,89 @@ if __name__ == '__main__':
 
             # Probably won't work on your machine. will figure out a
             # universal way later
-            proc = subprocess.Popen('objdump -h ./SecureDBG/debugger | grep .text | cut -c 30-43', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-            output = proc.stdout.read().decode('utf-8')
-            debugger_entryp = int(output, 16)
+            # proc = subprocess.Popen('objdump -h ./SecureDBG/debugger | grep .text | cut -c 30-43', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            # proc = subprocess.Popen('objdump -t ./SecureDBG/debugger | grep _debugger_entryp | cut -c 1-16', stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            # output = proc.stdout.read().decode('utf-8')
+            # debugger_entryp = int(output, 16)
+            # dbgcodesz = len(dbgdata)
+            # print("debugger_entryp at {}".format(hex(debugger_entryp)))
+            # our rwx view of AOP SRAM
+            debugger_entryp = 0x934e00000
             dbgcodesz = len(dbgdata)
-            print("debugger_entryp at {}".format(hex(debugger_entryp)))
             print("debugger code size {}".format(hex(dbgcodesz)))
 
+            device = dfu.acquire_device()
+
+            # response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 50000)
+            # print(response)
+            # print(bytearray(response))
+            # sys.exit(0)
+
             # We send the following:
-            #  [copy destination (8bytes)][copy size (4bytes)][debugger code]
-            dbgrequest = struct.pack("<QI2036s", debugger_entryp, dbgcodesz, dbgdata)
+            #  [copy size (4 bytes)]
+            #  [copy offset (4 bytes)]
+            #  [done boolean (4 bytes)]
+            #  [current chunk of debugger code] */
+            # The debugger code is sent in 0x800 byte chunks, since that's
+            # the max USB packet size
+            # chunk = 0
+            offset = 0
+            tosend = dbgcodesz
+            # to account for metadata before
+            maxsend = 2036
+            done = 0
+
+            while not done:
+                cursendsz = maxsend
+
+                if tosend < maxsend:
+                    cursendsz = tosend
+                    done = 1
+
+                # print("Chunk {} tosend {} done: {}".format(hex(chunk), hex(tosend), done))
+                dst = debugger_entryp + offset
+                codechunk = dbgdata[offset:offset+cursendsz]
+
+                # print("Dst {} cursendsz {} offset {} done: {}".format(hex(dst), hex(cursendsz), hex(offset), done))
+
+                # dbgrequest = struct.pack("<QQII2024s", debugger_entryp, dst, chunk, done, codechunk)
+                dbgrequest = struct.pack("<III2036s", cursendsz, offset, done, codechunk)
+
+                assert device.ctrl_transfer(0x21, 1, 0, 0, dbgrequest, 50000) == 0x800
+                response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 50000)
+                # print(response)
+                # print(bytearray(response))
+
+                # address = dst - 0xc
+                # for line in utilities.hex_dump(response, address).splitlines():
+                #     print '%x: %s' % (address, line[10:])
+                #     address += 16
+
+                offset += cursendsz
+                tosend -= cursendsz
+
+            # sys.exit(0);
+
             # address = debugger_entryp - 12
             # for line in utilities.hex_dump(dbgrequest, address).splitlines():
             #     print '%x: %s' % (address, line[10:])
             #     address += 16
 
-            device = dfu.acquire_device()
-            
-            # dfu.send_data(device, dbgdata)
-            dfu.send_data(device, dbgrequest)
 
-            # init SecureDBG
-            response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 100)
+            time.sleep(2)
+            # response = device.ctrl_transfer(0xa1, 2, 0x4000, 0, 0x800, 100)
 
-            # address = 0
-            # for line in utilities.hex_dump(response, address).splitlines():
-            #     print '%x: %s' % (address, line[10:])
-            #     address += 16
+            # print("SecureDBG Log:")
+            # # Hello from SecureROM!
+            # print(response)
+            # print(bytearray(response))
 
-            response = device.ctrl_transfer(0xa1, 2, 0x4000, 0, 0x800, 100)
 
-            print("SecureDBG Log:")
-            # Hello from SecureROM!
-            print(bytearray(response))
+            while True:
+                response = device.ctrl_transfer(0xa1, 2, 0x4000, 0, 0x800, 500)
+                print(response)
+                print(bytearray(response))
+                time.sleep(2)
 
 
             # address = 0

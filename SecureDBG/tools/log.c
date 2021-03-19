@@ -50,7 +50,8 @@ static char *logend = NULL;
 static char *readp = NULL;
 static char *writep = NULL;
 
-static size_t logsz = 0x800;
+static size_t logsz = 0x4000;
+static size_t retbufsz = 0x800;
 static size_t loglen = 0;
 
 /* We re-use the same dynamically allocated message buffer to construct
@@ -76,13 +77,11 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
     va_list args;
     va_start(args, fmt);
 
-    /* char msg[0x200]; */
-    /* vsnprintf(msg, sizeof(msg), fmt, args); */
-
     /* We do not copy nul terminators into the log. msgbuf has been
      * given logsz+1 bytes of memory so messages that are exactly the
      * log size are not truncated. */
-    vsnprintf(msgbuf, logsz + 1, fmt, args);
+    /* vsnprintf(msgbuf, logsz + 1, fmt, args); */
+    size_t written = vsnprintf(msgbuf, logsz - 1, fmt, args);
 
     va_end(args);
 
@@ -171,8 +170,11 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
     }
 }
 
-/* We never do partial reads here. The returned buffer isn't nul terminated,
- * the size is denoted by lenp. */
+/* Read out the log in 0x800-byte increments. This function is meant to be
+ * called inside a loop until the log is emptied. Weird things may happen
+ * if someone writes to the log while it's getting read out.
+ *
+ * The returned buffer isn't nul terminated, the size is denoted by *lenp. */
 char *getlog(size_t *lenp){
     /* Nothing to read */
     if(loglen == 0){
@@ -180,31 +182,76 @@ char *getlog(size_t *lenp){
         return retbuf;
     }
 
-    /* Copy everything between readp and writep. Unfortunately, this range
+    size_t len;
+
+    /* Copy what we can between readp and writep. Unfortunately, this range
      * isn't guarenteed to be contiguous, so I'm using another buffer
      * to abstract that away from the caller. If this range is contiguous,
      * then writep will be more than readp. If it isn't, then writep will
      * be less than readp. */
     if(writep > readp){
-        size_t outsz = writep - readp;
-        memmove(retbuf, readp, outsz);
-        /* printf("%s: copied [%p, %p)\n", __func__, readp, logbuf + outsz); */
-        *lenp = outsz;
+        size_t chunk = writep - readp;
+
+        if(chunk > retbufsz)
+            chunk = retbufsz;
+
+        memmove(retbuf, readp, chunk);
+        /* printf("%s: copied [%p, %p)\n", __func__, readp, logbuf + chunk); */
+
+        readp += chunk;
+        len = chunk;
+        /* *lenp = outsz; */
     }
     else{
         /* First, get the part covered by [readp, logend) */
-        size_t firstsz = logend - readp;
-        memmove(retbuf, readp, firstsz);
+        size_t firstchunk = logend - readp;
+        bool get_secondchunk = true;
+
+        if(firstchunk >= retbufsz){
+            firstchunk = retbufsz;
+            get_secondchunk = false;
+        }
+
+        memmove(retbuf, readp, firstchunk);
+
+        /* printf("%s: FIRST CHUNK: copied [%p, %p)\n", __func__, readp, */
+        /*         readp + firstchunk); */
+
+        readp += firstchunk;
+        len = firstchunk;
+
+        /* If we can, get the second part covered by [logbuf, writep) */
+        if(get_secondchunk){
+            /* Figure out how much we can copy from the second part */
+            size_t limit = retbufsz - firstchunk;
+            size_t secondchunk = writep - logbuf;
+
+            if(secondchunk >= limit)
+                secondchunk = limit;
+
+            memmove(retbuf + firstchunk, logbuf, secondchunk);
+
+            /* printf("%s: SECOND CHUNK: copied [%p, %p)\n", __func__, logbuf, */
+            /*         logbuf + secondchunk); */
+
+            readp = logbuf + secondchunk;
+            len += secondchunk;
+        }
+
+        /* memmove(retbuf, readp, firstsz); */
         /* printf("%s: copied [%p, %p)\n", __func__, readp, logend); */
         /* Second, get the part covered by [logbuf, writep) */
-        size_t secondsz = writep - logbuf;
-        memmove(retbuf + firstsz, logbuf, secondsz);
+        /* size_t secondsz = writep - logbuf; */
+        /* memmove(retbuf + firstsz, logbuf, secondsz); */
         /* printf("%s: copied [%p, %p)\n", __func__, logbuf, writep); */
-        *lenp = firstsz + secondsz;
+        /* *lenp = firstsz + secondsz; */
     }
 
-    loglen = 0;
-    readp = writep;
+    loglen -= len;
+    *lenp = len;
+
+    /* loglen = 0; */
+    /* readp = writep; */
 
     return retbuf;
 }
@@ -224,19 +271,19 @@ bool loginit(void){
         return false;
     }
 
-    retbuf = malloc(logsz);
+    retbuf = malloc(retbufsz);
 
     if(!retbuf){
         printf("%s: malloc failed\n", __func__);
         return false;
     }
 
-    memset(logbuf, 0, logsz);
-    memset(msgbuf, 0, logsz + 1);
-    memset(retbuf, 0, logsz);
+    memset(logbuf, '%', logsz);
+    memset(msgbuf, '$', logsz + 1);
+    memset(retbuf, '9', retbufsz);
 
     logend = logbuf + logsz;
-    readp = writep = logbuf;
+    readp = writep = logbuf;// + 0x3625;
 
     return true;
 }
@@ -421,6 +468,101 @@ static void logtest_read(void){
 #endif
 }
 
+#define NEWREAD_1
+/* #define NEWREAD_2 */
+
+static void logtest_newread(void){
+    size_t len;
+    char *log;
+
+#ifdef NEWREAD_1
+    /* char letters[] = { 'A', 'B', 'C', 'D', 'E' }; */
+    /* for(int i=0; i<sizeof(letters)/sizeof(*letters); i++){ */
+    /*     for(int k=0; k<0x800; k++){ */
+    /*         dbglog("%c", letters[i]); */
+    /*     } */
+    /* } */
+    dbglog("ABCD");
+    DumpMemory(msgbuf, 0x10);
+    ptrdump();
+
+    /* do { */
+    /* for(int i=0; i<10; i++){ */
+    /*     dbglog("%s: out buf %#llx\n", __func__, (uint64_t)letters); */
+    /*     len = 0; */
+    /*     log = getlog(&len); */
+    /*     DumpMemory(log, len); */
+    /*     ptrdump(); */
+    /* } */
+    /* } while (len > 0); */
+
+    /* DumpMemory(logbuf, logsz); */
+    /* dbglog("%s: Hello\n", __func__); */
+    /* DumpMemory(logbuf, logsz); */
+    /* len = 0; */
+    /* log = getlog(&len); */
+    /* DumpMemory(log, len); */
+    /* ptrdump(); */
+
+
+#endif
+
+#ifdef NEWREAD_2
+    /* Fourth test: fluctuate read/write pointers with buffers of
+     * random sizes */
+    for(int i=0; ; i++){
+        uint32_t bufsz = arc4random_uniform(logsz);
+        
+        if(bufsz == 0)
+            bufsz = 2;
+
+        char *buf = malloc(bufsz);
+
+        if(!buf){
+            printf("%s: malloc failed\n", __func__);
+            abort();
+        }
+
+        arc4random_buf(buf, bufsz);
+        buf[bufsz - 1] = '\0';
+
+        for(size_t i=0; i<(bufsz - 1); i++){
+            if(buf[i] == '\0')
+                buf[i]++;
+        }
+
+        dbglog("%s", buf);
+        char *bufp = buf;
+        char *logp = logbuf;
+
+        do {
+            len = 0;
+            log = getlog(&len);
+            if(memcmp(bufp, log, len) != 0){
+                printf("%d: Written log and read log do not match!\n", i);
+                printf("Written to log:\n");
+                DumpMemory(buf, bufsz - 1);
+                printf("Read back:\n");
+                DumpMemory(log, len);
+                abort();
+            }
+            bufp += len;
+        } while (len > 0);
+
+        free(buf);
+    }
+#endif
+}
+
+static size_t my_strlen(char *s){
+    char *p = s;
+
+    while(*p)
+        p++;
+
+    return p - s;
+}
+
 int main(int argc, char **argv){
     if(!loginit()){
         printf("Could not init log\n");
@@ -430,7 +572,15 @@ int main(int argc, char **argv){
     /* logtest_readp_before_writep(); */
     /* logtest_writep_before_readp(); */
 
-    logtest_read();
+    /* logtest_read(); */
+    logtest_newread();
+
+    /* const char *s = "Hello my name is Justin"; */
+    /* size_t sl = strlen(s); */
+    /* size_t my_sl = my_strlen(s); */
+    /* printf("%zu %zu\n", sl, my_sl); */
+
+
 
     return 0;
 }

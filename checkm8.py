@@ -486,6 +486,7 @@ def payload(cpid):
     t8015_handler = asm_arm64_x7_trampoline(t8015_handle_interface_request) + asm_arm64_branch(0x10, 0x0) + prepare_shellcode('usb_0xA1_2_arm64', constants_usb_t8015)[4:]
     t8015_shellcode = prepare_shellcode('checkm8_arm64', constants_checkm8_t8015)
     print(len(t8015_shellcode))
+    print(PAYLOAD_OFFSET_ARM64)
     print(len(t8015_handler))
     assert len(t8015_shellcode) <= PAYLOAD_OFFSET_ARM64
     assert len(t8015_handler) <= PAYLOAD_SIZE_ARM64

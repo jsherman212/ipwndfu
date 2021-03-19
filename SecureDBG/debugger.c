@@ -2,28 +2,29 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "common.h"
 #include "debugger_log.h"
 #include "SecureROM_offsets.h"
 #include "structs.h"
 
 /* XXX what happens when we transition over to iBoot? */
-
-/* SecureROM/iBoot are single core, so we can safely start up another
- * CPU as the debugger CPU. The debuggee CPU is whatever CPU is executing
- * the code inside debugger_entryp. */
-static uint8_t debugger_cpu;
-static uint8_t debuggee_cpu;
-
-__attribute__ ((noreturn)) static void debugger_tick(void){
-    for(;;){
-
-    }
-}
+static GLOBAL(uint8_t debuggee_cpu);
+static GLOBAL(uint8_t debugger_cpu) = 5;
 
 static uint8_t curcpu(void){
     uint64_t mpidr_el1;
-    asm volatile("mrs %0, ttbr0_el1" : "=r" (mpidr_el1));
+    asm volatile("mrs %0, mpidr_el1" : "=r" (mpidr_el1));
     return mpidr_el1 & 0xff;
+}
+
+extern void cpu5_iorvbar(void);
+
+__attribute__ ((noreturn)) void debugger_tick(void){
+    dbglog("%s: we are alive\n", __func__);
+
+    for(;;){
+
+    }
 }
 
 enum {
@@ -40,51 +41,65 @@ static bool is_SecureDBG_request(uint16_t req){
  * command doesn't match any in this file. (at least, if we're executing
  * inside SecureROM, what about iBoot?) */
 static int SecureDBG_usb_interface_request_handler(struct usb_request_packet *req,
-        void **bufoutp){
+        void *bufout){
     uint16_t request = req->wValue;
 
-    dbglog("%s: got request %#x\n", __func__, request);
-
     if(!is_SecureDBG_request(request))
-        return ipwndfu_usb_interface_request_handler(req, bufoutp);
+        return ipwndfu_usb_interface_request_handler(req, bufout);
 
     if(request == SecureDBG_LOG_READ){
-        dbglog("%s: sending back log...\n", __func__);
-        size_t len = 0;
+        /* dbglog("%s: sending back log (bufout=%#llx)...\n", __func__, */
+        /*         (uint64_t)bufout); */
+
+        size_t len;
         char *log = getlog(&len);
-        usb_core_do_io(0x80, log, req->wLength, NULL);
+
+        if(len == 0){
+            aop_sram_strcpy(log, "!NOLOG!");
+            len = 7;
+        }
+
+        aop_sram_memcpy(io_buffer, log, len);
+        usb_core_do_io(0x80, io_buffer, len, NULL);
     }
 
     return 0;
 }
 
-static bool SecureDBG_init_flag = false;
+static GLOBAL(bool SecureDBG_init_flag) = false;
 
 /* Called from src/usb_0xA1_2_arm64.S. Here we point SecureROM's global
  * USB interface callback to our own, set up a logging system, and kickstart
  * a debugger CPU. */
 uint64_t debugger_entryp(void){
-    if(SecureDBG_init_flag)
-        return 0;
+    /* if(SecureDBG_init_flag) */
+    /*     return 0; */
 
     uint64_t res = loginit();
 
     if(res)
         return res;
 
+    *(uint64_t *)usb_interface_request_handler = (uint64_t)SecureDBG_usb_interface_request_handler;
+
+    /* Letters array doesn't work */
+    /* char letters[] = { 'A', 'B', 'C', 'D' };//, 'E' }; */
+    for(int i=0; i<4; i++){//sizeof(letters)/sizeof(*letters); i++){
+        for(int k=0; k<0x300; k++){
+            /* dbglog("%c", letters[i]); */
+            dbglog("%c", 'A');
+        }
+    }
+
     debuggee_cpu = curcpu();
 
     dbglog("%s: hello from SecureROM! We are CPU %d\n", __func__,
             debuggee_cpu);
-    
-    /* Low powered caller? Low powered debugger */
-    if(debuggee_cpu == 0)
-        debugger_cpu = 1;
-    /* High powered caller? High powered debugger */
-    else
-        debugger_cpu = 5;
 
-    *(uint64_t *)usb_interface_request_handler = (uint64_t)SecureDBG_usb_interface_request_handler;
+    if(debuggee_cpu == debugger_cpu){
+        dbglog("%s: why are we CPU5?\n", __func__);
+        return 1;
+    }
 
     SecureDBG_init_flag = true;
 

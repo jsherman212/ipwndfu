@@ -16,25 +16,40 @@ _main:
   STP  X29, X30, [SP,#-0x10]!
   MOV  X29, SP
 
-    ; Translate VA 0x102000000 to PA 0x180000000 so we have an rwx view
-    ; of the boot tramp page. We'll use the unused part of the page for
-    ; our code
+    /* Bring up AOP SRAM. T8015 */
+    mov x0, #0x200000000
+    mov x2, x0
+    movk x0, #0x00f8
+    movk x0, #0x3528, lsl #16
+    mov w1, #0xf
+    str w1, [x0]
+
+Lnotup:
+    ldr w1, [x0]
+    mvn w1, w1
+    tst w1, #0xf0
+    b.ne Lnotup
+
+    /* Translate VA 0x934e00000 to PA 0x234e00000. This way we have an
+    rwx view of AOP SRAM we can run our code off of */
     mov x0, #0x180000000
-    mov x1, x0
-    mov x3, x0
-    movk x0, #0xc408
-    movk x1, #0x625
-    str x1, [x0]
+    movk x0, #0xe4d0
+    movk x2, #0x621
+    movk x2, #0x3400, lsl #16
+    str x2, [x0]
 
     dsb sy
     isb sy
     tlbi vmalle1
-    dsb sy
     isb sy
 
   LDR  X0, =gUSBDescriptors
   LDP  X0, X1, [X0]
   ADR  X2, USB_DESCRIPTOR
+
+    ; ldp q0, q1, [x2]
+    ; stp q0, q1, [x0]
+    ; stp q0, q1, [x1]
   LDP  X3, X4, [X2]
   STP  X3, X4, [X0]
   STP  X3, X4, [X1]
@@ -43,10 +58,11 @@ _main:
   STP  X3, X4, [X1,#0x10]
 
   LDR  X0, =gUSBSerialNumber
-find_zero_loop:
+
+Lfind_zero_loop:
   ADD  X0, X0, #1
   LDRB W1, [X0]
-  CBNZ W1, find_zero_loop
+  CBNZ W1, Lfind_zero_loop
 
   ADR  X1, PWND_STRING
   LDP  X2, X3, [X1]
@@ -69,26 +85,25 @@ find_zero_loop:
   ADD  X5, X0, #0x18
   STR  X5, [X4]         ; XXX set interface request pointer to our code
 
-copy_loop:
-  LDP  X3, X4,  [X1]
-  STP  X3, X4,  [X0]
-    ; make space
-  ; LDP  X3, X4,  [X1,#0x10]
-  ; STP  X3, X4,  [X0,#0x10]
-  ; LDP  X3, X4,  [X1,#0x20]
-  ; STP  X3, X4,  [X0,#0x20]
-  ; LDP  X3, X4,  [X1,#0x30]
-  ; STP  X3, X4,  [X0,#0x30]
-  DC   CIVAC, X0
-  DMB  SY
-  ; ADD  X0, X0, #0x40
-  ; ADD  X1, X1, #0x40
-  ; ADD  X2, X2, #0x40
-  ADD  X0, X0, #0x10
-  ADD  X1, X1, #0x10
-  ADD  X2, X2, #0x10
-  CMP  X2, X3
-  B.CC copy_loop
+Lcopy_loop:
+    ldp x3, x4, [x1], #0x10
+    stp x3, x4, [x0], #0x10
+    dc civac, x0
+    add x2, x2, #0x10
+    cmp x2, x3
+    b.lo Lcopy_loop
+
+
+; Lcopy_loop:
+;   LDP  X3, X4,  [X1]
+;   STP  X3, X4,  [X0]
+;   DC   CIVAC, X0
+;   DMB  SY
+;   ADD  X0, X0, #0x10
+;   ADD  X1, X1, #0x10
+;   ADD  X2, X2, #0x10
+;   CMP  X2, X3
+;   B.CC Lcopy_loop
 
   SYS  #0, c7, c5, #0
   DSB  SY

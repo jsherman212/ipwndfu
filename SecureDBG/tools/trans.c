@@ -114,6 +114,8 @@ int main(int argc, char **argv){
     /* T8015 */
     void *ttbase = mmap((void *)0x18000c000, 0x8000, PROT_READ | PROT_WRITE,
             MAP_PRIVATE, fd, 0);
+    /* void *ttbase = mmap((void *)0x180000000, 0x8000, PROT_READ | PROT_WRITE, */
+    /*         MAP_PRIVATE, fd, 0); */
 
     if(ttbase == MAP_FAILED){
         printf("Failed mmap: %s\n", strerror(errno));

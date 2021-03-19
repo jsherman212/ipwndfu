@@ -31,27 +31,34 @@ jump_back:
     cmp w1, w2
     b.ne normal
 
-    ; X0 is the beginning of the free space we have after the boot trampoline
-    ; inside SRAM. We already uploaded the debugger code before issuing the
-    ; DFU abort, so it lives inside io_buffer. memcpy it to the free space.
-    ; X1 == io_buffer
+    /* X0 is the beginning of our rwx view of AOP SRAM. We already uploaded
+    the debugger code, so it lives inside io_buffer. memcpy it to AOP SRAM.
+    debugger_entryp always lives at the beginning of the copied code. */
+    /* X1 == io_buffer */
+    mov x0, #0x900000000
+    movk x0, #0x34e0, lsl #16
+    mov x7, x0
     mov x1, #0x100000000
     movk x1, #0x801e, lsl #16
     movk x1, #0xc800
-    ; We sent debugger_entryp and code size in the 12 bytes before
-    ; the actual code
-    ldr x0, [x1]
-    ldr w2, [x1, #0x8]
+
+    /* We sent this:
+    [copy size (4 bytes)]
+    [copy offset (4 bytes)]
+    [done boolean (4 bytes)]
+    [current chunk of debugger code] */
+    ldr w2, [x1]
+    ldr w3, [x1, #0x4]
+    ldr w5, [x1, #0x8]
     add x1, x1, #0xc
-    
-    ; Nothing past this point modifies x5
-    mov x5, x0
+    add x0, x0, x3
+    mov x6, x0
+
+    /* Nothing past this point modifies x5-x7, goes byte-by-byte, safe
+    for AOP SRAM */
     bl memcpy
 
-    ; Clean/invalidate dcache/icache so we can change debugger code
-    ; and not have to re-DFU
-    ; These functions do not modify x0 and x1
-    mov x0, x5
+    mov x0, x6
     mov w1, #0x800
     bl dcache_clean_PoU
     bl icache_invalidate_PoU
@@ -59,11 +66,14 @@ jump_back:
     dsb sy
     isb sy
     tlbi vmalle1
-    dsb sy
     isb sy
 
-    blr x5
+    mov x0, xzr
+    cbz w5, Ldonecopy
 
+    blr x7
+
+Ldonecopy:
     stp x0, xzr, [x20]
     b request_done
 

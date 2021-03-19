@@ -4,31 +4,31 @@
 #include <stdlib.h>
 #include <sys/cdefs.h>
 
+#include "common.h"
 #include "SecureROM_offsets.h"
 
-static char *logbuf = NULL;
-static char *logend = NULL;
-static char *readp = NULL;
-static char *writep = NULL;
+/* Give a page for logbuf, msgbuf, and retbuf */
+asm(".section __TEXT,__logs\n"
+    ".align 14\n"
+    ".space 0xc000, 0x0\n"
+    ".section __TEXT,__text\n");
 
-static size_t logsz = 0x800;
-static size_t loglen = 0;
+static GLOBAL(char *logbuf) = NULL;
+static GLOBAL(char *logend) = NULL;
+static GLOBAL(char *readp) = NULL;
+static GLOBAL(char *writep) = NULL;
 
-/* We re-use the same dynamically allocated message buffer to construct
- * the format strings since we have limited stack space in SecureROM */
-static char *msgbuf = NULL;
+static GLOBAL(size_t logsz) = 0x4000;
+/* We are limited to the max USB transfer */
+static GLOBAL(size_t retbufsz) = 0x800;
+static GLOBAL(size_t loglen) = 0;
 
-/* We re-use the same buffer for returning log contents to the caller. */
-static char *retbuf = NULL;
+static GLOBAL(char *msgbuf) = NULL;
 
-static size_t strlen(char *s){
-    char *p = s;
-
-    while(*p)
-        p++;
-
-    return p - s;
-}
+/* We re-use the same buffer for returning log contents to the caller.
+ * This is malloc'ed because usb_core_do_io does not like AOP SRAM
+ * pointers for whatever reason */
+static GLOBAL(char *retbuf) = NULL;
 
 __printflike(1, 2) void dbglog(const char *fmt, ...){
     if(loglen == logsz)
@@ -37,19 +37,18 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
     va_list args;
     va_start(args, fmt);
 
-    /* We do not copy nul terminators into the log. msgbuf has been
-     * given logsz+1 bytes of memory so messages that are exactly the
-     * log size are not truncated. */
-    vsnprintf(msgbuf, logsz + 1, fmt, args);
+    /* Logs of size 0x4000 are gonna have their last char truncated,
+     * but when would I ever log a single string of that size? */
+    vsnprintf(msgbuf, logsz, fmt, args);
 
     va_end(args);
 
     char *msgp = msgbuf;
-    size_t msglen = strlen(msgp);
+    size_t msglen = aop_sram_strlen(msgp);
 
     if(msglen == 0)
         return;
-
+    
     if(readp <= writep){
         /* We have not wrapped around to the beginning
          * of the log buffer yet. Check if we have enough space
@@ -62,7 +61,7 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
          *     for the rest of the message before the read pointer)
          */
         if(writep + msglen < logend){
-            memmove(writep, msgp, msglen);
+            aop_sram_memcpy(writep, msgp, msglen);
             writep += msglen;
             loglen += msglen;
             return;
@@ -78,7 +77,7 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
         size_t wrapspace = readp - logbuf;
 
         /* Copy what we can to the end of the log buffer */
-        memmove(writep, msgp, canwrite);
+        aop_sram_memcpy(writep, msgp, canwrite);
 
         msgp += canwrite;
         writep += canwrite;
@@ -89,7 +88,7 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
             return;
 
         /* Wrap around to the beginning */
-        memmove(logbuf, msgp, pending);
+        aop_sram_memcpy(logbuf, msgp, pending);
 
         writep = logbuf + pending;
         loglen += pending;
@@ -105,15 +104,19 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
         if(canwrite > msglen)
             canwrite = msglen;
 
-        memmove(writep, msgp, canwrite);
+        aop_sram_memcpy(writep, msgp, canwrite);
 
         writep += canwrite;
         loglen += canwrite;
     }
 }
 
-/* We never do partial reads here. The returned buffer isn't nul terminated,
- * the size is denoted by lenp. */
+/* Read out the log in 0x800-byte increments. This function is meant to be
+ * called from a loop on the host machine until the log is emptied. Weird
+ * things may happen to log contents if someone writes to the log while
+ * it's getting read out.
+ *
+ * The returned buffer isn't nul terminated, the size is denoted by *lenp. */
 char *getlog(size_t *lenp){
     /* Nothing to read */
     if(loglen == 0){
@@ -121,55 +124,74 @@ char *getlog(size_t *lenp){
         return retbuf;
     }
 
-    /* Copy everything between readp and writep. Unfortunately, this range
+    size_t len;
+
+    /* Copy what we can between readp and writep. Unfortunately, this range
      * isn't guarenteed to be contiguous, so I'm using another buffer
      * to abstract that away from the caller. If this range is contiguous,
      * then writep will be more than readp. If it isn't, then writep will
      * be less than readp. */
     if(writep > readp){
-        size_t outsz = writep - readp;
-        memmove(retbuf, readp, outsz);
-        *lenp = outsz;
+        size_t chunk = writep - readp;
+
+        if(chunk > retbufsz)
+            chunk = retbufsz;
+
+        aop_sram_memcpy(retbuf, readp, chunk);
+
+        readp += chunk;
+        len = chunk;
     }
     else{
         /* First, get the part covered by [readp, logend) */
-        size_t firstsz = logend - readp;
-        memmove(retbuf, readp, firstsz);
+        size_t firstchunk = logend - readp;
+        bool get_secondchunk = true;
 
-        /* Second, get the part covered by [logbuf, writep) */
-        size_t secondsz = writep - logbuf;
-        memmove(retbuf + firstsz, logbuf, secondsz);
-        *lenp = firstsz + secondsz;
+        if(firstchunk >= retbufsz){
+            firstchunk = retbufsz;
+            get_secondchunk = false;
+        }
+
+        aop_sram_memcpy(retbuf, readp, firstchunk);
+
+        readp += firstchunk;
+        len = firstchunk;
+
+        /* If we can, get the second part covered by [logbuf, writep) */
+        if(get_secondchunk){
+            /* Figure out how much we can copy from the second part */
+            size_t limit = retbufsz - firstchunk;
+            size_t secondchunk = writep - logbuf;
+
+            if(secondchunk >= limit)
+                secondchunk = limit;
+
+            aop_sram_memcpy(retbuf + firstchunk, logbuf, secondchunk);
+
+            readp = logbuf + secondchunk;
+            len += secondchunk;
+        }
     }
 
-    loglen = 0;
-    readp = writep;
+    loglen -= len;
+    *lenp = len;
 
     return retbuf;
 }
 
-static bool log_inited = false;
+static GLOBAL(bool log_inited) = false;
 
 uint64_t loginit(void){
     if(log_inited)
         return 0;
 
-    logbuf = alloc2(logsz);
+    extern uint64_t __logs_start[] asm("section$start$__TEXT$__logs");
 
-    if(!logbuf)
-        return 1;
-
-    msgbuf = alloc2(logsz + 1);
-
-    if(!msgbuf)
-        return 2;
-
-    retbuf = alloc2(logsz);
-
-    if(!retbuf)
-        return 3;
-
+    logbuf = (char *)__logs_start;
     logend = logbuf + logsz;
+    msgbuf = logend;
+    retbuf = msgbuf + logsz;
+
     readp = writep = logbuf;
 
     log_inited = true;
