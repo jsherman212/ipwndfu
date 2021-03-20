@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "debugger_log.h"
+#include "init.h"
 #include "SecureROM_offsets.h"
 #include "structs.h"
 
@@ -47,6 +48,7 @@ static int SecureDBG_usb_interface_request_handler(struct usb_request_packet *re
     if(!is_SecureDBG_request(request))
         return ipwndfu_usb_interface_request_handler(req, bufout);
 
+
     if(request == SecureDBG_LOG_READ){
         /* dbglog("%s: sending back log (bufout=%#llx)...\n", __func__, */
         /*         (uint64_t)bufout); */
@@ -72,24 +74,15 @@ static GLOBAL(bool SecureDBG_init_flag) = false;
  * USB interface callback to our own, set up a logging system, and kickstart
  * a debugger CPU. */
 uint64_t debugger_entryp(void){
-    /* if(SecureDBG_init_flag) */
-    /*     return 0; */
+    if(SecureDBG_init_flag)
+        return 0;
 
-    uint64_t res = loginit();
-
-    if(res)
-        return res;
+    if(!init())
+        return 1;
 
     *(uint64_t *)usb_interface_request_handler = (uint64_t)SecureDBG_usb_interface_request_handler;
 
-    /* Letters array doesn't work */
-    /* char letters[] = { 'A', 'B', 'C', 'D' };//, 'E' }; */
-    for(int i=0; i<4; i++){//sizeof(letters)/sizeof(*letters); i++){
-        for(int k=0; k<0x300; k++){
-            /* dbglog("%c", letters[i]); */
-            dbglog("%c", 'A');
-        }
-    }
+    /* asm volatile("brk #0x4141"); */
 
     debuggee_cpu = curcpu();
 
@@ -103,5 +96,5 @@ uint64_t debugger_entryp(void){
 
     SecureDBG_init_flag = true;
 
-    return res;
+    return 0;
 }

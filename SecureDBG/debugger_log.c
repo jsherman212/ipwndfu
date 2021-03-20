@@ -181,11 +181,11 @@ char *getlog(size_t *lenp){
 
 static GLOBAL(bool log_inited) = false;
 
-uint64_t loginit(void){
+void loginit(void){
     if(log_inited)
-        return 0;
+        return;
 
-    extern uint64_t __logs_start[] asm("section$start$__TEXT$__logs");
+    extern volatile uint64_t __logs_start[] asm("section$start$__TEXT$__logs");
 
     logbuf = (char *)__logs_start;
     logend = logbuf + logsz;
@@ -196,5 +196,5 @@ uint64_t loginit(void){
 
     log_inited = true;
 
-    return 0;
+    return;
 }

@@ -21,7 +21,10 @@ in chunks
 	- control transfer `0xfffe` is sent. For each chunk:
 		- copy to AOP SRAM (+offset, if not first upload)
 	- when we're done copying all debugger code, branch to `debugger_entryp` @ `0x934e00000`
-		- sets up a logging system (retreive logs with ctrl transfer `0x4000`)
+		- sets up a logging system (retrieve logs with ctrl transfer `0x4000`)
+		- copies ROM to some point in AOP SRAM
+			- creates new page table hierarchy for the copied ROM
+			- TTE for [`0x100000000`, `0x102000000`) is changed to point to new TTE, ROM instructions are now patchable
 		- brings up the debugger cpu, CPU5 (`TODO`)
 		- ...
 

@@ -1,8 +1,8 @@
 #define rvbar_el1 s3_0_c12_c0_1
 
-.section __TEXT,__pagetables
-.align 14
-.space 0x4000, 0x0
+; .section __TEXT,__pagetables
+; .align 14
+; .space 0x4000, 0x0
 
 .section __TEXT,__stacks
 .align 14

@@ -3,6 +3,7 @@ CC = $(shell xcrun --sdk $(SDK) --find clang)
 CFLAGS = -isysroot $(SDK) -arch arm64 -ffreestanding
 # DO NOT TURN ON ANY OPTIMIZATION
 CFLAGS += -fno-stack-protector -DFORTIFY_SOURCE=0 -O0 -nostdlib
+# CFLAGS += -mno-unaligned-access
 FINAL_CFLAGS = -e _debugger_entryp
 
 # T8015 AOP SRAM base is at 0x234e00000, but we use a TTE that creates
@@ -17,6 +18,9 @@ common.o : common.c common.h
 debugger_log.o : debugger_log.c debugger_log.h
 	$(CC) $(CFLAGS) debugger_log.c -c
 
-debugger : common.o cpu5.s debugger_log.o debugger.c
-	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) common.o cpu5.s debugger_log.o debugger.c -o debugger
+init.o : init.c
+	$(CC) $(CFLAGS) init.c -c
+
+debugger : common.o cpu5.s debugger_log.o debugger.c init.o
+	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) common.o cpu5.s debugger_log.o debugger.c init.o -o debugger
 	dd if=debugger of=debugger.bin bs=1 skip=0x8000

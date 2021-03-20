@@ -29,8 +29,15 @@ jump_back:
     mov w1, SecureDBG_cmd
     ldrh w2, [x19, #2]
     cmp w1, w2
-    b.ne normal
+    b.eq Linit
+    ; cmp w1, #0x5000
+    ; b.eq Ldie
+    b Lnormal
 
+; Ldie:
+;     brk #0x4141
+
+Linit:
     /* X0 is the beginning of our rwx view of AOP SRAM. We already uploaded
     the debugger code, so it lives inside io_buffer. memcpy it to AOP SRAM.
     debugger_entryp always lives at the beginning of the copied code. */
@@ -77,7 +84,7 @@ Ldonecopy:
     stp x0, xzr, [x20]
     b request_done
 
-normal:
+Lnormal:
   MOV  W1, #0xFFFF
   LDRH W2, [X19,#2]
   CMP  W1, W2
@@ -92,15 +99,15 @@ normal:
 
   STR  XZR, [X20]                              ; LOAD_ADDRESS[0] = 0
 
-  LDR  X0, [X20, #0x10]                        ; X0 = LOAD_ADDRESS[2]      /* arg1 */
-  LDR  X1, [X20, #0x18]                        ; X1 = LOAD_ADDRESS[3]      /* arg2 */
-  LDR  X2, [X20, #0x20]                        ; X2 = LOAD_ADDRESS[4]      /* arg3 */
-  LDR  X3, [X20, #0x28]                        ; X3 = LOAD_ADDRESS[5]      /* arg4 */
-  LDR  X4, [X20, #0x30]                        ; X4 = LOAD_ADDRESS[6]      /* arg5 */
-  LDR  X5, [X20, #0x38]                        ; X5 = LOAD_ADDRESS[7]      /* arg6 */
-  LDR  X6, [X20, #0x40]                        ; X6 = LOAD_ADDRESS[8]      /* arg7 */
-  LDR  X7, [X20, #0x40]                        ; X7 = LOAD_ADDRESS[9]      /* arg8 */
-  LDR  X8, [X20, #0x8]
+  ; LDR  X0, [X20, #0x10]                        ; X0 = LOAD_ADDRESS[2]      /* arg1 */
+  ; LDR  X1, [X20, #0x18]                        ; X1 = LOAD_ADDRESS[3]      /* arg2 */
+  ; LDR  X2, [X20, #0x20]                        ; X2 = LOAD_ADDRESS[4]      /* arg3 */
+  ; LDR  X3, [X20, #0x28]                        ; X3 = LOAD_ADDRESS[5]      /* arg4 */
+  ; LDR  X4, [X20, #0x30]                        ; X4 = LOAD_ADDRESS[6]      /* arg5 */
+  ; LDR  X5, [X20, #0x38]                        ; X5 = LOAD_ADDRESS[7]      /* arg6 */
+  ; LDR  X6, [X20, #0x40]                        ; X6 = LOAD_ADDRESS[8]      /* arg7 */
+  ; LDR  X7, [X20, #0x40]                        ; X7 = LOAD_ADDRESS[9]      /* arg8 */
+  ; LDR  X8, [X20, #0x8]
   BLR  X8                                      ; X0 = LOAD_ADDRESS[1](X0, X1, X2, X3, X4, X5, X6, X7)
 
   LDR  X8, =DONE_MAGIC
