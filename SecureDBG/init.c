@@ -20,22 +20,6 @@ asm(".section __TEXT,__romreloc\n"
 /*     ".space 0x4000, 0x0\n" */
 /*     ".section __TEXT,__text\n"); */
 
-__attribute__ ((naked)) static uint64_t transtest_read(uint64_t va){
-    asm(""
-        "at s1e1r, x0\n"
-        "isb sy\n"
-        "mrs x0, par_el1\n"
-        "ret\n");
-}
-
-__attribute__ ((naked)) static uint64_t transtest_write(uint64_t va){
-    asm(""
-        "at s1e1w, x0\n"
-        "isb sy\n"
-        "mrs x0, par_el1\n"
-        "ret\n");
-}
-
 bool init(void){
     /* Set up the logging system before anything else */
     loginit();
@@ -128,6 +112,11 @@ bool init(void){
 
     /* Do the write now, since everything has been setup if we're here */
     *(uint64_t *)0x18000c400 = newl2entry;
+
+    /* Also mark the original TTE for AOP SRAM as rwx, so cpu5
+     * doesn't panic when we set the MMU bit in its SCTLR_EL1 */
+    *(uint64_t *)0x18000c8d0 = 0x234000421;
+
     /* XXX For testing with 0x102000000 - 0x104000000 */
     /* *(uint64_t *)0x18000c408 = newl2entry; */
 
@@ -136,30 +125,38 @@ bool init(void){
     asm volatile("tlbi vmalle1");
     asm volatile("isb sy");
 
-    /* After this point, ROM instructions are patchable */
+    /* After this point, ROM instructions are patchable. Let's bring
+     * up CPU5 */
 
-    /* uint64_t testva = 0x102000000; */
-    uint64_t testva = 0x100000000;
-    uint64_t ttr = 0x41424344;
-    uint64_t ttw = 0x45464748;
-    /* ttr = transtest_read(testva); */
-    /* ttw = transtest_write(testva); */
+    /* Ensure CPU5's debug registers can be written to */
+    uint64_t cpu5_coresight = 0x208510000;
+    uint64_t cpu5_trace = 0x208510000 + 0x30000;
 
-    /* ttr = transtest_read(0x100000000); */
-    ttr = transtest_read(testva);
-    ttw = transtest_write(testva);
+    volatile uint32_t *cpu5_edlar = (volatile uint32_t *)(cpu5_coresight + 0xfb0);
+    volatile uint32_t *cpu5_edlsr = (volatile uint32_t *)(cpu5_coresight + 0xfb4);
 
-    /* ttr = 0x41424344; */
-    /* ttw = 0x45464748; */
-    dbglog("%#llx %#llx\n", ttr, ttw);
-    /* uint64_t aop_sram_addr = 0x934e18000; */
-    /* dbglog("try read for %#llx: %#llx\n", aop_sram_addr, */
-    /*         transtest_read(aop_sram_addr)); */
+    *cpu5_edlar = 0xc5acce55;
 
-    uint32_t testread = *(uint32_t *)testva;
-    dbglog("%#x\n", testread);
-    /* mov x0, #0x1234 */
-    /* testva = 0x1000187DC; */
+    /* Wait for regs to be unlocked (if they weren't already) */
+    while(*cpu5_edlsr & 2){}
+
+    /* Bring up CPU5 via the external debug interface */
+    extern void cpu5_iorvbar(void);
+
+    *(volatile uint64_t *)0x208550000 = AOP_SRAM_VA_TO_PA(cpu5_iorvbar);
+    asm volatile("dsb sy");
+    asm volatile("isb sy");
+    *(volatile uint32_t *)0x208510310 = 0x8;
+    asm volatile("dsb sy");
+    asm volatile("isb sy");
+
+#define DBGWRAP_DBGHALT         (1ULL << 31)
+#define DBGWRAP_Restart         (1uLL << 30)
+
+    volatile uint64_t *cpu5_dbgwrap = (volatile uint64_t *)cpu5_trace;
+    *cpu5_dbgwrap = (*cpu5_dbgwrap & ~DBGWRAP_DBGHALT) | DBGWRAP_Restart;
+
+    while(!cpu5_init_done){}
 
     return true;
 }

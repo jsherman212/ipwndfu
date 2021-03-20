@@ -18,10 +18,10 @@ static uint8_t curcpu(void){
     return mpidr_el1 & 0xff;
 }
 
-extern void cpu5_iorvbar(void);
+extern __attribute__ ((noreturn)) void debugger_tick(void);
 
 __attribute__ ((noreturn)) void debugger_tick(void){
-    dbglog("%s: we are alive\n", __func__);
+    dbglog("%s: hello from cpu%d!\n", __func__, (uint32_t)curcpu());
 
     for(;;){
 
@@ -82,12 +82,10 @@ uint64_t debugger_entryp(void){
 
     *(uint64_t *)usb_interface_request_handler = (uint64_t)SecureDBG_usb_interface_request_handler;
 
-    /* asm volatile("brk #0x4141"); */
-
     debuggee_cpu = curcpu();
 
-    dbglog("%s: hello from SecureROM! We are CPU %d\n", __func__,
-            debuggee_cpu);
+    /* dbglog("%s: hello from SecureROM! We are CPU %d\n", __func__, */
+    /*         debuggee_cpu); */
 
     if(debuggee_cpu == debugger_cpu){
         dbglog("%s: why are we CPU5?\n", __func__);

@@ -25,8 +25,10 @@ in chunks
 		- copies ROM to some point in AOP SRAM
 			- creates new page table hierarchy for the copied ROM
 			- TTE for [`0x100000000`, `0x102000000`) is changed to point to new TTE, ROM instructions are now patchable
-		- brings up the debugger cpu, CPU5 (`TODO`)
-		- ...
+		- brings up the debugger cpu, cpu5, via Coresight regs and its trace register
+- Debugger CPU
+	- always cpu5
+	- [...]
 
 sends return value back as a response (0 == success, otherwise fail)
 
@@ -156,4 +158,3 @@ chronic, CPICH, ius, MuscleNerd, Planetbeing, pod2g, posixninja, et al. for 24Kp
 pod2g for steaks4uce exploit
 
 walac for pyusb
-

@@ -264,7 +264,10 @@ if __name__ == '__main__':
                 # assert device.ctrl_transfer(0x21, 1, 0, 0, dbgrequest, 50000) == 0x800
                 # response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 50000)
                 assert device.ctrl_transfer(0x21, 1, 0, 0, dbgrequest, 5000) == 0x800
-                response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 5000)
+                try:
+                    response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 5000)
+                except:
+                    print("Ignoring assert from 0xfffe ctrl transfer")
                 # print(response)
                 # print(bytearray(response))
 

@@ -6,6 +6,7 @@
  * up getting whatever trash is inside AOP SRAM */
 #define GLOBAL(x) x __attribute__ ((section("__TEXT,__text")))
 
+extern volatile uint32_t cpu5_init_done;
 extern volatile uint64_t __romreloc_start[] asm("section$start$__TEXT$__romreloc");
 
 #define AOP_SRAM_REBASE (0x700000000)
