@@ -32,9 +32,14 @@ Lnotup:
 
     /* Translate VA 0x934e00000 to PA 0x234e00000. This way we have an
     rwx view of AOP SRAM we can run our code off of */
+    /* Change the L2 TTE for AOP SRAM to be rwx so we have an identity
+    map for when we bring up cpu5 */
     mov x0, #0x180000000
-    movk x0, #0xe4d0
-    movk x2, #0x621
+    ; movk x0, #0xe4d0
+    movk x0, #0xc8d0
+    ; movk x2, #0x621
+    movk x2, #0x421
+    ; movk x2, #0x425
     movk x2, #0x3400, lsl #16
     str x2, [x0]
 

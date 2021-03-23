@@ -8,7 +8,8 @@ FINAL_CFLAGS = -e _debugger_entryp
 
 # T8015 AOP SRAM base is at 0x234e00000, but we use a TTE that creates
 # an rwx view at VA 0x934e00000.
-LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x934e00000 -Wl,-preload
+# LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x934e00000 -Wl,-preload
+LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x234e00000 -Wl,-preload
 
 all : debugger
 

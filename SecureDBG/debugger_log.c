@@ -39,7 +39,8 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
 
     /* Logs of size 0x4000 are gonna have their last char truncated,
      * but when would I ever log a single string of that size? */
-    vsnprintf(msgbuf, logsz, fmt, args);
+    /* vsnprintf(msgbuf, logsz, fmt, args); */
+    aop_sram_vsnprintf(msgbuf, logsz, fmt, args);
 
     va_end(args);
 

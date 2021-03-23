@@ -220,7 +220,7 @@ if __name__ == '__main__':
                 sys.exit(1)
 
             # our rwx view of AOP SRAM
-            debugger_entryp = 0x934e00000
+            debugger_entryp = 0x234e00000
             dbgcodesz = len(dbgdata)
             print("debugger code size {}".format(hex(dbgcodesz)))
 

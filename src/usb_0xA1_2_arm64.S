@@ -42,7 +42,8 @@ Linit:
     the debugger code, so it lives inside io_buffer. memcpy it to AOP SRAM.
     debugger_entryp always lives at the beginning of the copied code. */
     /* X1 == io_buffer */
-    mov x0, #0x900000000
+    ; mov x0, #0x900000000
+    mov x0, #0x200000000
     movk x0, #0x34e0, lsl #16
     mov x7, x0
     mov x1, #0x100000000

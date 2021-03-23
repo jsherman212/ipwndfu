@@ -30,8 +30,8 @@ bool init(void){
 
     aop_sram_memcpy((volatile void *)__romreloc_start, rom_start, 0x20000);
 
-    dbglog("%s: ROM relocated to %#llx: first insn %#x\n", __func__,
-            __romreloc_start, *(volatile uint32_t *)__romreloc_start);
+    /* dbglog("%s: ROM relocated to %#llx: first insn %#x\n", __func__, */
+    /*         __romreloc_start, *(volatile uint32_t *)__romreloc_start); */
 
     /* Change the page table hierarchy so translating any VA from
      * 0x100000000 to 0x102000000 translates to PA __romreloc_start to
@@ -61,7 +61,7 @@ bool init(void){
     volatile uint64_t *relocptesp = (volatile uint64_t *)malloc(0x4050);
 
     if(!relocptesp){
-        dbglog("%s: malloc failed\n", __func__);
+        /* dbglog("%s: malloc failed\n", __func__); */
         return true;
     }
 
@@ -70,14 +70,15 @@ bool init(void){
 
     volatile uint64_t *relocptesend = relocptesp + (0x20000 / 0x4000);
 
-    uint64_t oa = AOP_SRAM_VA_TO_PA(__romreloc_start);
+    /* uint64_t oa = AOP_SRAM_VA_TO_PA(__romreloc_start); */
+    uint64_t oa = (uint64_t)__romreloc_start;
     uint64_t newl2entry = ((uint64_t)relocptesp & 0xffffffffc000) |
         (1 << 1) | (1 << 0);
 
-    dbglog("%s: new L2 entry will be %#llx\n", __func__, newl2entry);
+    /* dbglog("%s: new L2 entry will be %#llx\n", __func__, newl2entry); */
 
-    dbglog("%s: new ROM PTEs start @ %#llx and end @ %#llx\n", __func__,
-            (uint64_t)relocptesp, (uint64_t)relocptesend);
+    /* dbglog("%s: new ROM PTEs start @ %#llx and end @ %#llx\n", __func__, */
+            /* (uint64_t)relocptesp, (uint64_t)relocptesend); */
 
     while(relocptesp < relocptesend){
         /* PTE template:
@@ -98,8 +99,8 @@ bool init(void){
          */
         uint64_t pte = oa | (1 << 10) | (2 << 8) | (1 << 1) | (1 << 0);
 
-        dbglog("%s: New PTE for %#llx: %#llx\n", __func__,
-                (uint64_t)relocptesp, pte);
+        /* dbglog("%s: New PTE for %#llx: %#llx\n", __func__, */
+                /* (uint64_t)relocptesp, pte); */
 
         *relocptesp = pte;
 
@@ -115,7 +116,7 @@ bool init(void){
 
     /* Also mark the original TTE for AOP SRAM as rwx, so cpu5
      * doesn't panic when we set the MMU bit in its SCTLR_EL1 */
-    *(uint64_t *)0x18000c8d0 = 0x234000421;
+    /* *(uint64_t *)0x18000c8d0 = 0x234000421; */
 
     /* XXX For testing with 0x102000000 - 0x104000000 */
     /* *(uint64_t *)0x18000c408 = newl2entry; */
@@ -134,6 +135,8 @@ bool init(void){
 
     volatile uint32_t *cpu5_edlar = (volatile uint32_t *)(cpu5_coresight + 0xfb0);
     volatile uint32_t *cpu5_edlsr = (volatile uint32_t *)(cpu5_coresight + 0xfb4);
+    volatile uint32_t *cpu5_edscr = (volatile uint32_t *)(cpu5_coresight + 0x88);
+    /* dbglog("%s: edscr: %#x\n", __func__, *cpu5_edscr); */
 
     *cpu5_edlar = 0xc5acce55;
 
@@ -143,7 +146,8 @@ bool init(void){
     /* Bring up CPU5 via the external debug interface */
     extern void cpu5_iorvbar(void);
 
-    *(volatile uint64_t *)0x208550000 = AOP_SRAM_VA_TO_PA(cpu5_iorvbar);
+    /* *(volatile uint64_t *)0x208550000 = AOP_SRAM_VA_TO_PA(cpu5_iorvbar); */
+    *(volatile uint64_t *)0x208550000 = (volatile uint64_t )cpu5_iorvbar;
     asm volatile("dsb sy");
     asm volatile("isb sy");
     *(volatile uint32_t *)0x208510310 = 0x8;
@@ -156,7 +160,24 @@ bool init(void){
     volatile uint64_t *cpu5_dbgwrap = (volatile uint64_t *)cpu5_trace;
     *cpu5_dbgwrap = (*cpu5_dbgwrap & ~DBGWRAP_DBGHALT) | DBGWRAP_Restart;
 
-    while(!cpu5_init_done){}
+    /* while(!cpu5_init_done){} */
+    for(int i=0; i<10000000; i++){}
+
+     extern volatile uint64_t cpu5_debug[] asm("section$start$__TEXT$__cpu5debug");
+    volatile uint8_t *cpu5_debug8 = (volatile uint8_t *)cpu5_debug;
+    volatile uint32_t *cpu5_debug32 = (volatile uint32_t *)cpu5_debug;
+    volatile uint64_t *cpu5_debug64 = (volatile uint64_t *)cpu5_debug;
+
+    /* dbglog("%s: edscr: %#x\n", __func__, *cpu5_edscr); */
+
+    int lim = 6;
+    for(int i=0; i<=lim; i++){
+        /* dbglog("%#llx\n", cpu5_debug64[i]); */
+    }
+    /* dbglog("cpu5 init done: %d\n", cpu5_init_done); */
+
+/*     dbglog("%#llx %#llx %#llx %#llx %#llx %#llx %#llx\n", cpu5_debug64[0], cpu5_debug64[1], */
+/*             cpu5_debug64[2], cpu5_debug64[3], cpu5_debug64[4]); */
 
     return true;
 }

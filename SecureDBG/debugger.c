@@ -18,10 +18,51 @@ static uint8_t curcpu(void){
     return mpidr_el1 & 0xff;
 }
 
+GLOBAL(const char *fmt) = "%s: hello from cpu%d!\n";
+GLOBAL(const char *func) = "debugger_tick";
+
 extern __attribute__ ((noreturn)) void debugger_tick(void);
+/* extern __attribute__ ((naked, noreturn)) void debugger_tick(uint64_t); */
+
+/* __attribute__ ((naked, noreturn)) void debugger_tick(uint64_t cpu5debug){ */
+/*     asm("" */
+/*         "mov x18, x0\n" */
+/*         "sub sp, sp, #0x30\n" */
+/*         "stp x29, x30, [sp, #0x20]\n" */
+/*         "add x29, sp, #0x20\n" */
+/*         "bl _curcpu\n" */
+/*         "adrp x8, _fmt@PAGE\n" */
+/*         "add x8, x8, _fmt@PAGEOFF\n" */
+/*         "ldr x8, [x8]\n" */
+/*         "stur w0, [x29, #-0x4]\n" */
+/*         "mov x0, x8\n" */
+/*         "mov x8, sp\n" */
+/*         "adrp x9, _func@PAGE\n" */
+/*         "add x9, x9, _func@PAGEOFF\n" */
+/*         "ldr x9, [x9]\n" */
+/*         "str x9, [x8]\n" */
+/*         "ldur w10, [x29, #-0x4]\n" */
+/*         "mov x1, x10\n" */
+/*         "and x9, x1, #0xff\n" */
+/*         "str x9, [x8, #0x8]\n" */
+/*         "bl _dbglog\n" */
+
+
+
+
+/*         "mov w1, 0x4141\n" */
+/*         /1* "str w1, [x18]\n" *1/ */
+/*         "b .\n" */
+/*        ); */
+/* } */
 
 __attribute__ ((noreturn)) void debugger_tick(void){
     dbglog("%s: hello from cpu%d!\n", __func__, (uint32_t)curcpu());
+    dbglog("AA%s: hello from cpu%d!\n", __func__, (uint32_t)curcpu());
+    dbglog("hello from cpu%d!\n", (uint32_t)curcpu());
+    dbglog("hfdsi %d\n", 444444);
+    dbglog("Hello\n");
+    dbglog("%s: test test\n", __func__);
 
     for(;;){
 

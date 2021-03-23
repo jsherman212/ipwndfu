@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/cdefs.h>
+#include <time.h>
 #include <unistd.h>
 
 static void DumpMemory(void *data, size_t size){
@@ -563,7 +564,159 @@ static size_t my_strlen(char *s){
     return p - s;
 }
 
+/* Format specifiers supported:
+ *  %s, %d
+ *
+ * No width, padding, etc, only 0x
+ */
+static void my_vsnprintf(char *buf, size_t n, const char *fmt,
+        va_list args){
+    if(n == 0)
+        return;
+
+    size_t left = n;
+    size_t printed = 0;
+    char *fmtp = (char *)fmt;
+    char *bufp = buf;
+
+    while(*fmtp){// && left > 1){
+        printf("%s: first: '%s'\n", __func__, fmtp);
+        /* As long as we don't see a format specifier, just copy
+         * the string */
+        while(*fmtp && *fmtp != '%'){
+            if(left > 1){
+                *bufp++ = *fmtp;
+                printf("%s: left: %zu\n", __func__, left);
+                left--;
+            }
+
+            fmtp++;
+        }
+
+        printf("'%s'\n", fmtp);
+
+        /* We done? */
+        if(*fmtp == '\0')
+            break;
+
+        /* printf("%s\n", fmtp); */
+        /* abort(); */
+
+        /* Get off the '%' */
+        fmtp++;
+
+        printf("'%s'\n", fmtp);
+        bool zeroX = false;
+
+        if(*fmtp == '#'){
+            zeroX = true;
+            fmtp++;
+        }
+
+        printf("'%s'\n", fmtp);
+
+        switch(*fmtp){
+            case 's':
+                {
+                    char *arg = va_arg(args, char *);
+
+                    while(*arg && left > 1){
+                        *bufp++ = *arg++;
+                        left--;
+                        printf("%s: va arg %%s: left %zu\n", __func__, left);
+                    }
+
+                    fmtp++;
+                    break;
+                }
+            case 'd':
+                {
+                    int arg = va_arg(args, int);
+
+                    if(arg < 0){
+                        *bufp++ = '-';
+                        left--;
+
+                        /* Make positive */
+                        arg *= -1;
+                    }
+
+                    /* Get digits */
+                    char digits[10];
+
+                    for(int i=0; i<sizeof(digits); i++)
+                        digits[i] = '\0';
+
+                    int thisdig = sizeof(digits) - 1;
+
+                    while(arg){
+                        int digit = arg % 10;
+                        printf("%s: digit %d char %c\n", __func__, digit,
+                                digit + '0');
+                        digits[thisdig--] = (char)(digit + '0');
+                        arg /= 10;
+                    }
+
+                    int startdig = 0;
+
+                    while(digits[startdig] == '\0')
+                        startdig++;
+
+                    for(int i=startdig; i<10; i++)
+                        printf("!!! %c\n", digits[i]);
+
+                    while(left > 1 && startdig < sizeof(digits)){
+                        /* printf("%s: cur digit %c\n", __func__, digits[thisdig]); */
+                        printf("%s: cur digit %c\n", __func__, digits[startdig]);
+                        *bufp++ = digits[startdig++];
+                        left--;
+                    }
+
+                    fmtp++;
+                    break;
+                }
+            default:
+                printf("%s: unhandled case '%s'\n", __func__, fmtp);
+                abort();
+        };
+    }
+
+    printf("%s: left %zu\n", __func__, left);
+
+    if(left > 0)
+        *bufp = '\0';
+}
+
+ __printflike(3, 4) static void my_snprintf(char *str, size_t n,
+         const char *fmt, ...){
+     va_list args;
+     va_start(args, fmt);
+
+     my_vsnprintf(str, n, fmt, args);
+
+     va_end(args);
+ }
+
+static void vsnprintf_tests(void){
+    /* char buf[0x50]; */
+    char buf[0x9];
+    
+    /* Normal string, no format specifiers */
+    /* my_snprintf(buf, sizeof(buf), "Hello!"); */
+    /* printf("'%s'\n", buf); */
+
+    /* my_snprintf(buf, sizeof(buf), "Hello %s!!!", "World"); */
+    /* printf("'%s'\n", buf); */
+
+    int num = rand() % 500000;
+    printf("num: %d\n", num);
+    num = -2147483647;
+    my_snprintf(buf, sizeof(buf), "Hello %d!", num);
+    printf("'%s'\n", buf);
+}
+
 int main(int argc, char **argv){
+    srand(time(NULL));
     if(!loginit()){
         printf("Could not init log\n");
         return 1;
@@ -573,13 +726,14 @@ int main(int argc, char **argv){
     /* logtest_writep_before_readp(); */
 
     /* logtest_read(); */
-    logtest_newread();
+    /* logtest_newread(); */
 
     /* const char *s = "Hello my name is Justin"; */
     /* size_t sl = strlen(s); */
     /* size_t my_sl = my_strlen(s); */
     /* printf("%zu %zu\n", sl, my_sl); */
 
+    vsnprintf_tests();
 
 
     return 0;
