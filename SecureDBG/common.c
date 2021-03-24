@@ -26,15 +26,113 @@ size_t aop_sram_strlen(volatile char *src){
     return p - src;
 }
 
+static void prntnum(volatile char **bufp, int64_t num, size_t *leftp){
+    if(num < 0 && *leftp > 1){
+        *(*bufp)++ = '-';
+        (*leftp)--;
+        /* Make positive */
+        num *= -1;
+    }
+
+    if(*leftp <= 1)
+        return;
+
+    /* Get digits */
+    char digits[20];
+
+    for(int i=0; i<sizeof(digits); i++)
+        digits[i] = '\0';
+
+    int thisdig = sizeof(digits) - 1;
+
+    while(num){
+        int digit = num % 10;
+
+        if(digit < 0)
+            digit *= -1;
+
+        digits[thisdig--] = (char)(digit + '0');
+        num /= 10;
+    }
+
+    int startdig = 0;
+
+    while(digits[startdig] == '\0')
+        startdig++;
+
+    while(*leftp > 1 && startdig < sizeof(digits)){
+        *(*bufp)++ = digits[startdig++];
+        (*leftp)--;
+    }
+}
+
+static void prnthex(volatile char **bufp, uint8_t *bytes, size_t len,
+        size_t *leftp, bool zeroX){
+    if(zeroX){
+        if(*leftp > 1){
+            *(*bufp)++ = '0';
+            (*leftp)--;
+        }
+
+        if(*leftp > 1){
+            *(*bufp)++ = 'x';
+            (*leftp)--;
+        }
+    }
+
+    if(*leftp <= 1)
+        return;
+
+    const char *hex = "0123456789abcdef";
+    bool first_nonzero = false;
+
+    for(size_t i=0; i<len; i++){
+        if(*leftp > 1){
+            char byte = hex[(*bytes >> 4) & 0xf];
+
+            if(byte != '0' && !first_nonzero)
+                first_nonzero = true;
+
+            if(first_nonzero)
+                *(*bufp)++ = byte;
+
+            (*leftp)--;
+        }
+
+        if(*leftp > 1){
+            char byte = hex[*bytes++ & 0xf];
+
+            if(byte != '0' && !first_nonzero)
+                first_nonzero = true;
+
+            if(first_nonzero)
+                *(*bufp)++ = byte;
+
+            (*leftp)--;
+        }
+    }
+
+    /* Entire number was zero */
+    if(!first_nonzero && *leftp > 1){
+        *(*bufp)++ = '0';
+        (*leftp)--;
+    }
+}
+
 /* Format specifiers currently supported:
- *  %s, %d
+ *  %%, %c, %s, %d, %x, %p, %llx, %lld
  *
  * No width, padding, etc, only 0x
  */
-void aop_sram_vsnprintf(char *buf, size_t n, const char *fmt,
+void aop_sram_vsnprintf(volatile char *buf, size_t n, const char *fmt,
         va_list args){
     if(n == 0)
         return;
+
+    if(n == 1){
+        *buf = '\0';
+        return;
+    }
 
     size_t left = n;
     size_t printed = 0;
@@ -68,6 +166,30 @@ void aop_sram_vsnprintf(char *buf, size_t n, const char *fmt,
         }
 
         switch(*fmtp){
+            case '%':
+                {
+                    if(left > 1){
+                        *bufp++ = '%';
+                        left--;
+                    }
+
+                    fmtp++;
+
+                    break;
+                }
+            case 'c':
+                {
+                    char ch = va_arg(args, int);
+
+                    if(left > 1){
+                        *bufp++ = ch;
+                        left--;
+                    }
+
+                    fmtp++;
+
+                    break;
+                }
             case 's':
                 {
                     char *arg = va_arg(args, char *);
@@ -78,45 +200,62 @@ void aop_sram_vsnprintf(char *buf, size_t n, const char *fmt,
                     }
 
                     fmtp++;
+
                     break;
                 }
             case 'd':
                 {
                     int arg = va_arg(args, int);
 
-                    if(arg < 0){
-                        *bufp++ = '-';
-                        left--;
-
-                        /* Make positive */
-                        arg *= -1;
-                    }
-
-                    /* Get digits */
-                    char digits[10];
-
-                    for(int i=0; i<sizeof(digits); i++)
-                        digits[i] = '\0';
-
-                    int thisdig = sizeof(digits) - 1;
-
-                    while(arg){
-                        int digit = arg % 10;
-                        digits[thisdig--] = (char)(digit + '0');
-                        arg /= 10;
-                    }
-
-                    int startdig = 0;
-
-                    while(digits[startdig] == '\0')
-                        startdig++;
-
-                    while(left > 1 && startdig < sizeof(digits)){
-                        *bufp++ = digits[startdig++];
-                        left--;
-                    }
+                    prntnum(&bufp, (int64_t)arg, &left);
 
                     fmtp++;
+
+                    break;
+                }
+            case 'x':
+                {
+                    uint32_t arg = __builtin_bswap32(va_arg(args, uint32_t));
+                    uint8_t *bytes = (uint8_t *)&arg;
+
+                    prnthex(&bufp, bytes, sizeof(arg), &left, zeroX);
+
+                    fmtp++;
+
+                    break;
+                }
+            case 'p':
+                {
+                    zeroX = true;
+
+                    uintptr_t arg = __builtin_bswap64(va_arg(args, uintptr_t));
+                    uint8_t *bytes = (uint8_t *)&arg;
+
+                    prnthex(&bufp, bytes, sizeof(arg), &left, zeroX);
+
+                    fmtp++;
+
+                    break;
+                }
+                /* llx or lld */
+            case 'l':
+                {
+                    if(fmtp[1] && fmtp[1] == 'l' && fmtp[2]){
+                        if(fmtp[2] == 'x'){
+                            uint64_t arg = __builtin_bswap64(va_arg(args, uint64_t));
+                            uint8_t *bytes = (uint8_t *)&arg;
+
+                            prnthex(&bufp, bytes, sizeof(arg), &left, zeroX);
+                        }
+                        else if(fmtp[2] == 'd'){
+                            int64_t arg = va_arg(args, int64_t);
+
+                            prntnum(&bufp, arg, &left);
+                        }
+
+                        fmtp += 3;
+                    }
+
                     break;
                 }
             default:
