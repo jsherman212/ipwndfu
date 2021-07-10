@@ -13,6 +13,89 @@ asm(".section __TEXT,__romreloc\n"
     ".space 0x20000, 0x0\n"
     ".section __TEXT,__text\n");
 
+void dcache_clean_PoU(void *address, size_t size){
+    const size_t cache_line_size = 64;
+
+    size = (size + cache_line_size) & ~(cache_line_size - 1);
+
+    uint64_t start = ((uint64_t)address & ~(cache_line_size - 1));
+    uint64_t end = start + size;
+
+    asm volatile("isb sy");
+
+    do {
+        asm volatile(""
+                "dc cvau, %0\n"
+                "dsb ish\n"
+                "isb sy\n"
+                : : "r" (start));
+
+        start += cache_line_size;
+    } while (start < end);
+}
+
+void icache_invalidate_PoU(void *address, size_t size){
+    const size_t cache_line_size = 64;
+
+    size = (size + cache_line_size) & ~(cache_line_size - 1);
+
+    uint64_t start = ((uint64_t)address & ~(cache_line_size - 1));
+    uint64_t end = start + size;
+
+    asm volatile("isb sy");
+
+    do {
+        asm volatile(""
+                "ic ivau, %0\n"
+                "dsb ish\n"
+                "isb sy\n"
+                : : "r" (start));
+
+        start += cache_line_size;
+    } while (start < end);
+}
+
+struct frame {
+    struct frame *fp;
+    uint64_t lr;
+};
+
+static void backtrace(struct frame *f){
+    int fnum = 0;
+
+    while(f){
+        dbglog("\tFrame %d: fp 0x%llx lr 0x%llx\n", fnum,
+                (uint64_t)f->fp, f->lr);
+        f = f->fp;
+        fnum++;
+    }
+
+    dbglog("\n--- Could not unwind past frame %d\n", fnum - 1);
+}
+
+__attribute__ ((noreturn)) static void panic_hook(const char *fmt, ...){
+    /* va_list args; */
+    /* va_start(args, fmt); */
+
+    dbglog("panic called!!\n");
+    void *caller = __builtin_return_address(0);
+
+    uint64_t mpidr;
+    asm volatile("mrs %0, mpidr_el1" : "=r" (mpidr));
+    uint8_t curcpu = mpidr & 0xff;
+
+    va_list args;
+    va_start(args, fmt);
+    dbglog("\npanic(cpu %d caller %p): ", curcpu, caller);
+    /* uart_vprintf(fmt, args); */
+    dbglog("\n");
+    va_end(args);
+
+    backtrace(__builtin_frame_address(1));
+
+    for(;;);
+}
+
 /* L3 page tables for relocated ROM */
 /* XXX the MMU doesn't seem to like reading from AOP SRAM for ptes */
 /* asm(".section __TEXT,__romrelocptes\n" */
@@ -125,6 +208,35 @@ bool init(void){
     asm volatile("tlbi vmalle1");
     asm volatile("isb sy");
 
+    /* int a1 = 0, a2 = 0, a3 = 0; */
+    /* bool res = platform_get_boot_device(0, &a1, &a2, &a3); */
+
+    /* dbglog("%s: platform_get_boot_device: res %d a1 %#x a2 %#x a3 %#x\n", */
+    /*         __func__, res, a1, a2, a3); */
+
+    /* if(!res) */
+    /*     return true; */
+
+    /* platform_enable_boot_interface(1, a1, a3); */
+
+    /* dbglog("%s: past platform_enable_boot_interface\n", __func__); */
+
+    /* flash_nand_init(a3); */
+
+    /* dbglog("%s: past flash_nand_init\n", __func__); */
+
+    /* void *img = lookup_image_in_bdev("spi_nand0"); */
+
+    /* dbglog("%s: lookup_image_in_bdev returned %p\n", __func__, img); */
+    /* dbglog("%s: image_info pointer dump:\n", __func__); */
+
+    /* uint32_t *img32p = img; */
+
+    /* for(int i=0; i<20; i++) */
+    /*     dbglog("%s: %p:   %#x\n", __func__, img32p + i, img32p[i]); */
+
+    /* return true; */
+
     /* After this point, ROM instructions are patchable. Let's bring
      * up CPU5 */
 
@@ -176,6 +288,25 @@ bool init(void){
 
 /*     dbglog("%#llx %#llx %#llx %#llx %#llx %#llx %#llx\n", cpu5_debug64[0], cpu5_debug64[1], */
 /*             cpu5_debug64[2], cpu5_debug64[3], cpu5_debug64[4]); */
+
+
+    /* Hook panic */
+    uint32_t *panicp = (uint32_t *)panic;
+    /* *(uint64_t *)panicp = (uint64_t)panic_hook; */
+
+    /* panicp[0] = *(uint32_t *)&panic_hook; */
+    /* panicp[1] = *(uint32_t *)(&panic_hook + 1); */
+    /* LDR X16, #0x8 */
+    panicp[0] = 0x58000050;
+    /* BR X16 */
+    panicp[1] = 0xd61f0200;
+    panicp[2] = (uint32_t)panic_hook;
+    panicp[3] = (uint32_t)((uint64_t)panic_hook >> 32);
+
+    dcache_clean_PoU(panicp, 4*sizeof(uint32_t));
+    icache_invalidate_PoU(panicp, 4*sizeof(uint32_t));
+
+    dbglog("%s: panic hook installed\n", __func__);
 
     return true;
 }

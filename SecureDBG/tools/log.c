@@ -1,3 +1,4 @@
+#include <math.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -863,6 +864,651 @@ static void vsnprintf_tests(void){
     /* printf("'%s'\n", buf); */
 }
 
+struct doprnt_info {
+    char *buf;
+    size_t remaining;
+};
+
+static void flagprocess(size_t ndigits, bool left_adjust, bool zeroX,
+        int fieldwidth, int prec, void (*putc)(char, void *),
+        struct doprnt_info *di){
+    int needed_zeros = prec - ndigits;
+    int needed_width = fieldwidth - ndigits;
+
+    if(fieldwidth != -1){
+        if(prec != -1){
+            /* If the field width is larger than the precision,
+             * we need to account for that and print blanks */
+            if(!left_adjust && fieldwidth > prec){
+                int nspaces = fieldwidth - prec;
+
+                while(--nspaces >= 0)
+                    putc(' ', di);
+            }
+
+            while(--needed_zeros >= 0)
+                putc('0', di);
+        }
+        else if(!left_adjust){
+            while(--needed_width >= 0)
+                putc(' ', di);
+
+            if(zeroX){
+                putc('0', di);
+                putc('x', di);
+            }
+        }
+    }
+    else{
+        if(prec != -1){
+            while(--needed_zeros >= 0)
+                putc('0', di);
+        }
+    }
+}
+
+static void prntnum2(int64_t num, bool left_adjust, bool zero_pad,
+        int fieldwidth, int prec, void (*putc)(char, void *),
+        struct doprnt_info *di){
+    if(num < 0){
+        putc('-', di);
+        /* Make positive */
+        num *= -1;
+    }
+
+    /* Get digits */
+    char digits[20];
+
+    for(int i=0; i<sizeof(digits); i++)
+        digits[i] = '\0';
+
+    int thisdig = sizeof(digits) - 1;
+
+    if(num == 0)
+        digits[sizeof(digits) - 1] = '0';
+    else{
+        while(num){
+            int digit = num % 10;
+
+            /* XXX Needed? */
+            if(digit < 0)
+                digit *= -1;
+
+            /* printf("%s: digit %d char %c\n", __func__, digit, */
+            /*         digit + '0'); */
+            digits[thisdig--] = (char)(digit + '0');
+            num /= 10;
+        }
+    }
+
+    int startdig = 0;
+
+    while(digits[startdig] == '\0')
+        startdig++;
+
+    size_t ndigits = sizeof(digits) - startdig;
+    /* printf("%s: there are %lld digits\n", __func__, ndigits); */
+
+    flagprocess(ndigits, left_adjust, false, fieldwidth, prec, putc, di);
+
+    if(prec == -1)
+        prec = INT_MAX;
+
+    while(startdig < sizeof(digits) && --prec >= 0)
+        putc(digits[startdig++], di);
+}
+
+static void prnthex2(uint8_t *bytes, size_t len, bool left_adjust,
+        bool zero_pad, bool zeroX, int fieldwidth, int prec,
+        void (*putc)(char, void *), struct doprnt_info *di){
+    const char *hex = "0123456789abcdef";
+    bool first_nonzero = false;
+    size_t ndigits = 0;
+    char digits[17];
+
+    for(int i=0; i<sizeof(digits); i++)
+        digits[i] = '\0';
+
+    for(size_t i=0; i<len; i++){
+        char one = hex[(*bytes >> 4) & 0xf];
+        char two = hex[*bytes++ & 0xf];
+
+        if(first_nonzero){
+            digits[ndigits++] = one;
+            digits[ndigits++] = two;
+        }
+        else{
+            if(one != '0'){
+                first_nonzero = true;
+                digits[ndigits++] = one;
+            }
+
+            if(two != '0' && !first_nonzero){
+                first_nonzero = true;
+                digits[ndigits++] = two;
+            }
+            else if(first_nonzero){
+                digits[ndigits++] = two;
+            }
+        }
+    }
+
+    /* A single zero is still a digit */
+    if(!first_nonzero)
+        ndigits = 1;
+
+    flagprocess(ndigits, left_adjust, zeroX, fieldwidth, prec, putc, di);
+
+    /* If there were flags, the 0x was already put */
+    if(zeroX && !left_adjust && !zero_pad && prec == -1 &&
+            fieldwidth == -1){
+        putc('0', di);
+        putc('x', di);
+    }
+
+    if(prec == -1)
+        prec = INT_MAX;
+
+    /* Entire number was zero */
+    if(!first_nonzero)
+        putc('0', di);
+    else{
+        for(size_t i=0; i<ndigits; i++){
+            if(--prec < 0)
+                break;
+
+            putc(digits[i], di);
+        }
+    }
+}
+
+static void prntflt(double num, bool left_adjust, int fieldwidth,
+        int prec, void (*putc)(char, void *), struct doprnt_info *di){
+    if(num == 0){
+        putc('0', di);
+        putc('.', di);
+        putc('0', di);
+        return;
+    }
+
+    if(num < 0){
+        putc('-', di);
+        /* Make positive */
+        num *= -1;
+    }
+
+    /* Cursed case: the number of digits in the integral part of this
+     * number is larger than the number of digits in INT64_MAX. This
+     * means it cannot be represented as a 64-bit integer, which makes
+     * it impossible to do the divide-by-ten and modulus trick to get
+     * the digits. TODO: scientific notation? */
+    if(num > (double)INT64_MAX){
+        putc('<', di);
+        putc('l', di);
+        putc('r', di);
+        putc('g', di);
+        putc('f', di);
+        putc('>', di);
+        return;
+    }
+
+    /* Print the integral part */
+    prntnum2((int64_t)num, false, false, -1, -1, putc, di);
+
+    /* Print the decimal */
+    putc('.', di);
+
+    /* Print the fractional part */
+    uint64_t powten;
+
+    if(prec == -1){
+        /* If no precision specified, print only 6 digits
+         * in the fractional part, padding with zeros */
+        powten = 100000;
+    }
+    else{
+        powten = 1;
+
+        /* Gross pow */
+        while(--prec >= 0)
+            powten *= 10;
+    }
+
+    float frac = num - (int64_t)num;
+    int64_t ifrac = (frac * powten);
+
+    /* Could this happen? */
+    if(ifrac < 0)
+        ifrac *= -1;
+
+    /* Already took care of precision here */
+    prntnum2(ifrac, false, false, -1, -1, putc, di);
+}
+
+static void printf_putc(char c, void *arg){
+    /* Not really needed, but just for consistency */
+    struct doprnt_info *di = arg;
+
+    if(di->remaining > 1){
+        putchar(c);
+        di->remaining--;
+    }
+}
+
+static void snprintf_putc(char c, void *arg){
+    struct doprnt_info *di = arg;
+
+    if(di->remaining > 1){
+        *di->buf++ = c;
+        di->remaining--;
+    }
+}
+
+static int64_t getnum(char **s){
+    int64_t res = 0;
+    bool neg = false;
+
+    if(**s == '-'){
+        neg = true;
+        (*s)++;
+    }
+
+    while(**s && **s >= '0' && **s <= '9'){
+        res = (res * 10) + (**s - '0');
+        /* printf("%s: res %lld\n", __func__, res); */
+        (*s)++;
+    }
+
+    if(neg)
+        res *= -1;
+
+    return res;
+}
+
+static bool is_specifier(char c){
+    return c == '%' || c == 'c' || c == 's' || c == 'd' || c == 'x' ||
+        c == 'p' || c == 'l' || c == 'f';
+}
+
+static int _doprnt(const char *fmt, void (*putc)(char, void *),
+        struct doprnt_info *info, va_list args){
+    if(info && info->remaining == 0)
+        return 0;
+
+    char *fmtp = (char *)fmt;
+    int printed = 0;
+
+    while(*fmtp){
+        /* As long as we don't see a format specifier, just copy
+         * the string */
+        while(*fmtp && *fmtp != '%')
+            putc(*fmtp++, info);
+
+        /* printf("'%s'\n", fmtp); */
+
+        /* We done? */
+        if(*fmtp == '\0')
+            break;
+
+        /* Get off the '%' */
+        fmtp++;
+
+        /* printf("'%s'\n", fmtp); */
+        bool left_adjust = false;
+        bool zero_pad = false;
+        bool zeroX = false;
+        int prec = -1;
+        int fieldwidth = -1;
+
+        /* Parse flags */
+        while(*fmtp && !is_specifier(*fmtp)){
+            if(*fmtp == '-'){
+                fmtp++;
+                left_adjust = true;
+            }
+            else if(*fmtp == '0' && !(fmtp[1] >= '0' && fmtp[1] <= '9')){
+                fmtp++;
+                zero_pad = true;
+            }
+            else if(*fmtp == '#'){
+                fmtp++;
+                zeroX = true;
+            }
+            else if(*fmtp == '.'){
+                fmtp++;
+                prec = (int)getnum(&fmtp);
+            }
+            else if(*fmtp >= '0' && *fmtp <= '9'){
+                fieldwidth = (int)getnum(&fmtp);
+            }
+            else{
+                fmtp++;
+            }
+        }
+
+        /* Hit the end of the string? */
+        if(*fmtp == '\0')
+            break;
+
+        /* Ignore '0' when '-' is present */
+        if(left_adjust)
+            zero_pad = false;
+
+        /* printf("left_adjust: %d\n", left_adjust); */
+        /* printf("zero_pad: %d\n", zero_pad); */
+        /* printf("zeroX: %d\n", zeroX); */
+        /* printf("prec: %d\n", prec); */
+        /* printf("field width: %d\n", fieldwidth); */
+
+        /* printf("'%s'\n", fmtp); */
+
+        switch(*fmtp){
+            case '%':
+                {
+                    putc('%', info);
+                    fmtp++;
+                    break;
+                }
+            case 'c':
+                {
+                    char ch = va_arg(args, int);
+                    putc(ch, info);
+                    fmtp++;
+                    break;
+                }
+            case 's':
+                {
+                    char *arg = va_arg(args, char *);
+
+                    if(prec == -1)
+                        prec = INT_MAX;
+
+                    while(*arg && --prec >= 0)
+                        putc(*arg++, info);
+
+                    fmtp++;
+
+                    break;
+                }
+            case 'd':
+                {
+                    int arg = va_arg(args, int);
+                    /* prntnum2(arg, left_adjust, fieldwidth, prec, putc, info); */
+                    prntnum2(arg, left_adjust, zero_pad, fieldwidth,
+                            prec, putc, info);
+
+                    fmtp++;
+                    break;
+                }
+            case 'x':
+                {
+                    uint32_t arg = __builtin_bswap32(va_arg(args, uint32_t));
+                    uint8_t *bytes = (uint8_t *)&arg;
+                    /* prnthex2(bytes, sizeof(arg), zeroX, prec, putc, info); */
+                    prnthex2(bytes, sizeof(arg), left_adjust, zero_pad,
+                            zeroX, fieldwidth, prec, putc, info);
+                    fmtp++;
+                    break;
+                }
+            case 'p':
+                {
+                    uintptr_t arg = __builtin_bswap64(va_arg(args, uintptr_t));
+                    uint8_t *bytes = (uint8_t *)&arg;
+                    /* prnthex2(bytes, sizeof(arg), true, prec, putc, info); */
+                    prnthex2(bytes, sizeof(arg), left_adjust, zero_pad,
+                            true, fieldwidth, prec, putc, info);
+                    fmtp++;
+                    break;
+                }
+                /* llx or lld */
+            case 'l':
+                {
+                    if(fmtp[1] && fmtp[1] == 'l' && fmtp[2]){
+                        if(fmtp[2] == 'x'){
+                            uint64_t arg = __builtin_bswap64(va_arg(args, uint64_t));
+                            uint8_t *bytes = (uint8_t *)&arg;
+
+                            prnthex2(bytes, sizeof(arg), left_adjust,
+                                    zero_pad, zeroX, fieldwidth, prec,
+                                    putc, info);
+                        }
+                        else if(fmtp[2] == 'd'){
+                            int64_t arg = va_arg(args, int64_t);
+                            prntnum2(arg, left_adjust, zero_pad, fieldwidth,
+                                    prec, putc, info);
+                        }
+
+                        fmtp += 3;
+                    }
+
+                    break;
+                }
+                /* Double */
+            case 'f':
+                {
+                    double arg = va_arg(args, double);
+                    /* printf("arg: %f\n", arg); */
+                    prntflt(arg, left_adjust, fieldwidth, prec, putc, info);
+                    fmtp++;
+                    break;
+                }
+            default:
+                printf("%s: unhandled case '%s'\n", __func__, fmtp);
+                abort();
+        };
+    }
+
+    return printed;
+}
+
+static int doprnt_printf_wrapper(const char *fmt, ...){
+    va_list args;
+    va_start(args, fmt);
+
+    struct doprnt_info di;
+    di.buf = NULL;
+    di.remaining = 999999999;
+
+    int w = _doprnt(fmt, printf_putc, &di, args);
+
+    va_end(args);
+
+    return w;
+}
+
+static int doprnt_snprintf_wrapper(char *buf, size_t n,
+        const char *fmt, ...){
+    va_list args;
+    va_start(args, fmt);
+
+    struct doprnt_info di;
+    di.buf = buf;
+    di.remaining = n;
+
+    int w = _doprnt(fmt, snprintf_putc, &di, args);
+
+    va_end(args);
+
+    if(di.remaining > 0)
+        *di.buf = '\0';
+
+    return w;
+}
+
+static void doprnt_tests(void){
+    printf("%lld\n", INT64_MAX);
+    doprnt_printf_wrapper("%% Hello world! %%\n");
+    doprnt_printf_wrapper("%% %c Hello%cworld! %%\n", 'A', '_');
+    doprnt_printf_wrapper("%% %c Hello%cworld! %s %%\n", 'A',
+            '_', "Justin");
+    doprnt_printf_wrapper("%% %d %c Hello%cworld! %s %d %%\n", INT64_MAX+1,
+            'A', '_', "Justin", 414243);
+    doprnt_printf_wrapper("%% %d %#x %c Hello%cworld! %s %d %%\n",
+            INT64_MAX+1, 0x12345678, 'A', '_', "Justin", 414243);
+    doprnt_printf_wrapper("%% %p %lld %#llx %d %#x %c Hello%cworld! %s %d %%\n",
+            doprnt_tests, INT64_MAX, INT64_MAX, -1111, 0x11022, 'A', '_',
+            "Justin", 414243);
+
+    char testbuf[0x100];
+    doprnt_snprintf_wrapper(testbuf, sizeof(testbuf),
+            "%% Hello world! %%\n");
+    printf("testbuf: '%s'\n", testbuf);
+    snprintf(testbuf, sizeof(testbuf),
+            "%% Hello world! %%\n");
+    printf("testbuf: '%s'\n", testbuf);
+    doprnt_snprintf_wrapper(testbuf, sizeof(testbuf),
+            "%% %c Hello%cworld! %%\n_", 'A', '_');
+    printf("testbuf: '%s'\n", testbuf);
+
+    doprnt_snprintf_wrapper(testbuf, sizeof(testbuf),
+            "%% %c Hello%cworld! %s %%\n", 'A', '_', "Justin");
+    printf("testbuf: '%s'\n", testbuf);
+    snprintf(testbuf, sizeof(testbuf),
+            "%% %c Hello%cworld! %s %%\n", 'A', '_', "Justin");
+    printf("testbuf: '%s'\n", testbuf);
+
+    doprnt_snprintf_wrapper(testbuf, sizeof(testbuf),
+            "%s: %% %d %c Hello%cworld! %s %d %%\n", __func__, INT_MAX,
+            'A', '_', "Justin", -414243);
+    printf("testbuf: '%s'\n", testbuf);
+
+    doprnt_snprintf_wrapper(testbuf, sizeof(testbuf),
+            "%% %p %d %#x %c Hello%cworld! %s %d %%\n", doprnt_tests,
+            INT64_MAX+1, 0x11022, 'A', '_', "Justin", 414243);
+    printf("testbuf: '%s'\n", testbuf);
+
+    doprnt_snprintf_wrapper(testbuf, sizeof(testbuf),
+            "%s%% %p %lld %#llx %d %#x %c Hello%cworld! %s %d %%\n",
+            __func__, doprnt_tests, 0, 0x987654321abcde, -1111, 0x11022,
+            'A', '_', "Justin", 414243);
+    printf("testbuf: '%s'\n", testbuf);
+    float f = 3.147;
+
+    /* doprnt_snprintf_wrapper(testbuf, sizeof(testbuf), */
+    /*         "%s%% %f %p %lld %#llx %d %#x %c Hello%cworld! %s %d %%\n", */
+    /*         __func__, 8932983289432894298489248932.4039290, */
+    /*         doprnt_tests, 0, 0x987654321abcde, -1111, 0x11022, */
+    /*         'A', '_', "Justin", 414243); */
+    /* printf("testbuf: '%s'\n", testbuf); */
+    double huge = 1111222233334444555566667777.88889999;
+    huge = 33232.4445;
+    /* printf("%.55f\n", huge); */
+
+    doprnt_snprintf_wrapper(testbuf, sizeof(testbuf),
+            "%s%% %.5f %p %lld %#llx %d %#x %c Hello%cworld! %.1s %.3d %%\n",
+            __func__, huge,
+            doprnt_tests, 0, 0x987654321abcde, -1111, 0x11022,
+            'A', '_', "Justin", 414243);
+    printf("testbuf: '%s'\n", testbuf);
+    printf("huge: %f\n", huge);
+
+    uint64_t val = (uint64_t)doprnt_tests;
+    uint64_t val2 = (uint64_t)prntflt;
+    /* printf("0x%16.16llx 0x%16llx\n", val, val2); */
+    printf("0x%16.16p 0x%16p\n", val, val2);
+
+    /* printf("0. %-9.9llx\n", 0x55uLL); */
+    /* printf("1. %10llx\n", 0x55uLL); */
+    /* printf("2. %10llx\n", 0x555uLL); */
+    /* printf("3. %-10llx\n", 0x55uLL); */
+    /* printf("4. %-10.10llx\n", 0x55uLL); */
+    /* printf("5. %10.10llx\n", 0x55uLL); */
+    /* printf("6. %15.10llx\n", 0x55uLL); */
+    /* printf("7. %11.10llx\n", 0x55uLL); */
+    /* printf("8. %-.19llx\n", 0x445566uLL); */
+    /* printf("9. %0.5llx\n", 0x11uLL); */
+    /* printf("10. %-.5llx\n", 0x11uLL); */
+    /* printf("11. %.5llx\n", 0x11uLL); */
+    /* printf("12. %-15.10llx\n", 0x55uLL); */
+    /* printf("13. %-.19llx\n", 0uLL); */
+    /* printf("14. %llx\n", 0uLL); */
+
+    printf("1. %10lld\n", 55uLL);
+    printf("2. %10lld\n", 555uLL);
+    printf("3. %-10lld\n", 55uLL);
+    printf("4. %-10.10lld\n", 55uLL);
+    printf("5. %10.10lld\n", 55uLL);
+    printf("6. %15.10lld\n", 55uLL);
+    printf("7. %11.10lld\n", 55uLL);
+    printf("8. %-.19lld\n", 445566uLL);
+    printf("9. %0.5lld\n", 11uLL);
+    printf("10. %-.5lld\n", 11uLL);
+    printf("11. %.5lld\n", 11uLL);
+    printf("12. %-15.10lld\n", 55uLL);
+    printf("13. %-15.10lld\n", 0uLL);
+    printf("14. %#-15.10lld\n", 55uLL);
+
+    printf("%f\n", 55.0);
+    printf("%15f\n", 55.0);
+    printf("%15f\n", 555.0);
+    printf("%-15f\n", 55.0);
+    printf("%-15.10f\n", 55.0);
+    printf("%15.10f\n", 55.0);
+
+    puts("-------");
+
+    doprnt_printf_wrapper("0x%16.16p 0x%16p\n", val, val2);
+    /* doprnt_printf_wrapper("0. %-9.9llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("1. %10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("2. %10llx\n", 0x555uLL); */
+    /* doprnt_printf_wrapper("3. %-10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("4. %-10.10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("5. %10.10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("6. %15.10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("7. %11.10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("8. %-.19llx\n", 0x425566uLL); */
+    /* doprnt_printf_wrapper("9. %0.5llx\n", 0x11uLL); */
+    /* doprnt_printf_wrapper("10. %-.5llx\n", 0x11uLL); */
+    /* doprnt_printf_wrapper("11. %.5llx\n", 0x11uLL); */
+    /* doprnt_printf_wrapper("12. %-15.10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("13. %-.19llx\n", 0uLL); */
+    /* doprnt_printf_wrapper("14. %llx\n", 0uLL); */
+
+    doprnt_printf_wrapper("1. %10lld\n", 55uLL);
+    doprnt_printf_wrapper("2. %10lld\n", 555uLL);
+    doprnt_printf_wrapper("3. %-10lld\n", 55uLL);
+    doprnt_printf_wrapper("4. %-10.10lld\n", 55uLL);
+    doprnt_printf_wrapper("5. %10.10lld\n", 55uLL);
+    doprnt_printf_wrapper("6. %15.10lld\n", 55uLL);
+    doprnt_printf_wrapper("7. %11.10lld\n", 55uLL);
+    doprnt_printf_wrapper("8. %-.19lld\n", 445566uLL);
+    doprnt_printf_wrapper("9. %0.5lld\n", 11uLL);
+    doprnt_printf_wrapper("10. %-.5lld\n", 11uLL);
+    doprnt_printf_wrapper("11. %.5lld\n", 11uLL);
+    doprnt_printf_wrapper("12. %-15.10lld\n", 55uLL);
+    doprnt_printf_wrapper("13. %-15.10lld\n", 0uLL);
+    doprnt_printf_wrapper("14. %#llx\n", 0xc8180cuLL);
+    doprnt_printf_wrapper("15. %#llx\n", 0x300000uLL);
+
+
+    /* doprnt_printf_wrapper("1. %10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("2. %10llx\n", 0x555uLL); */
+    /* /1* doprnt_printf_wrapper("%-10llx\n", 0x5566778899aabbuLL); *1/ */
+    /* doprnt_printf_wrapper("3. %-10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("4. %-10.10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("5. %10.10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("6. %15.10llx\n", 0x55uLL); */
+
+    doprnt_printf_wrapper("%f\n", 55.0);
+    doprnt_printf_wrapper("%15f\n", 55.0);
+    doprnt_printf_wrapper("%15f\n", 555.0);
+    doprnt_printf_wrapper("%-15f\n", 55.0);
+    doprnt_printf_wrapper("%-15.10f\n", 55.0);
+    doprnt_printf_wrapper("%15.10f\n", 55.0);
+
+    /* doprnt_printf_wrapper("%10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("%10llx\n", 0x555uLL); */
+    /* /1* doprnt_printf_wrapper("%-10llx\n", 0x5566778899aabbuLL); *1/ */
+    /* doprnt_printf_wrapper("%-10llx\n", 0x55uLL); */
+    /* doprnt_printf_wrapper("%-10.10llx\n", 0x55uLL); */
+
+    /* doprnt_printf_wrapper("%f\n", 55.0); */
+    /* doprnt_printf_wrapper("%10f\n", 55.0); */
+    /* doprnt_printf_wrapper("%10f\n", 555.0); */
+    /* doprnt_printf_wrapper("%-10f\n", 55.0); */
+    /* doprnt_printf_wrapper("%-10.10f\n", 55.0); */
+}
+
 int main(int argc, char **argv){
     srand(time(NULL));
     if(!loginit()){
@@ -881,8 +1527,8 @@ int main(int argc, char **argv){
     /* size_t my_sl = my_strlen(s); */
     /* printf("%zu %zu\n", sl, my_sl); */
 
-    vsnprintf_tests();
-
+    /* vsnprintf_tests(); */
+    doprnt_tests();
 
     return 0;
 }

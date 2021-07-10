@@ -13,7 +13,7 @@ supported for now. Pass `--dbg` to drop into the debugger to ipwndfu
 - checkm8 exploit flow is the same (and not modified)
 - checkm8 shellcode is modified
 	- AOP SRAM is brought up (Thanks [Siguza](https://twitter.com/s1guza))
-	- A TTE is inserted that translates VA `0x934e00000` to PA `0x234e00000` for an rwx view of AOP SRAM
+	- The TTE that translates VA `0x234e00000` to PA `0x234e00000` is modified to for an rwx view of AOP SRAM
 - checkm8 usb interface replacement code has been modified to initialize
 SecureDBG upon request `0xfffe`
 	- SecureDBG code is uploaded to device (and sits inside `io_buffer`)
@@ -158,3 +158,4 @@ chronic, CPICH, ius, MuscleNerd, Planetbeing, pod2g, posixninja, et al. for 24Kp
 pod2g for steaks4uce exploit
 
 walac for pyusb
+

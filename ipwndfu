@@ -226,11 +226,6 @@ if __name__ == '__main__':
 
             device = dfu.acquire_device()
 
-            # response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 50000)
-            # print(response)
-            # print(bytearray(response))
-            # sys.exit(0)
-
             # We send the following:
             #  [copy size (4 bytes)]
             #  [copy offset (4 bytes)]
@@ -252,74 +247,37 @@ if __name__ == '__main__':
                     cursendsz = tosend
                     done = 1
 
-                # print("Chunk {} tosend {} done: {}".format(hex(chunk), hex(tosend), done))
                 dst = debugger_entryp + offset
                 codechunk = dbgdata[offset:offset+cursendsz]
 
-                # print("Dst {} cursendsz {} offset {} done: {}".format(hex(dst), hex(cursendsz), hex(offset), done))
-
-                # dbgrequest = struct.pack("<QQII2024s", debugger_entryp, dst, chunk, done, codechunk)
                 dbgrequest = struct.pack("<III2036s", cursendsz, offset, done, codechunk)
 
-                # assert device.ctrl_transfer(0x21, 1, 0, 0, dbgrequest, 50000) == 0x800
-                # response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 50000)
                 assert device.ctrl_transfer(0x21, 1, 0, 0, dbgrequest, 5000) == 0x800
+
+                # response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 5000)
                 try:
                     response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 5000)
-                except:
+                except IOError as e:
+                    # print("Ignoring assert from 0xfffe ctrl transfer: " + e)
                     print("Ignoring assert from 0xfffe ctrl transfer")
-                # print(response)
-                # print(bytearray(response))
-
-                # address = dst - 0xc
-                # for line in utilities.hex_dump(response, address).splitlines():
-                #     print '%x: %s' % (address, line[10:])
-                #     address += 16
 
                 offset += cursendsz
                 tosend -= cursendsz
 
-            # sys.exit(0);
-
-            # address = debugger_entryp - 12
-            # for line in utilities.hex_dump(dbgrequest, address).splitlines():
-            #     print '%x: %s' % (address, line[10:])
-            #     address += 16
-
             time.sleep(2)
-            # response = device.ctrl_transfer(0xa1, 2, 0x4000, 0, 0x800, 100)
 
-            # print("SecureDBG Log:")
-            # # Hello from SecureROM!
-            # print(response)
-            # print(bytearray(response))
-
-            # panic SecureROM
-            # try:
-            #     response = device.ctrl_transfer(0xa1, 2, 0x5000, 0, 0x800, 500)
-            # except:
-            #     print("Ignoring timeout for 0x5000 transfer")
-
-            time.sleep(1)
             print("Waiting for log...")
             while True:
                 try:
                     response = device.ctrl_transfer(0xa1, 2, 0x4000, 0, 0x800, 5000)
-                    print(response)
+                    # print(response)
                     print(bytearray(response))
                 except:
                     print("No logs received")
-                    print(response)
-                    print(bytearray(response))
+                    # print(response)
+                    # print(bytearray(response))
 
                 time.sleep(2)
-
-
-            # address = 0
-            # for line in utilities.hex_dump(response, address).splitlines():
-            #     print '%x: %s' % (address, line[10:])
-            #     address += 16
-            # print(response)
 
             dfu.release_device(device)
         if opt == '--dump-rom':
