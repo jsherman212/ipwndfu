@@ -1,6 +1,7 @@
 #ifndef SECUREROM_OFFSETS
 #define SECUREROM_OFFSETS
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* T8015 */
@@ -20,11 +21,16 @@
 #define usb_task_init ((void (*)(void))0x100004d14)
 #define task_switch ((void (*)(void))0x100009484)
 #define vsnprintf ((int (*)(char *, size_t, const char *, va_list))0x10000e6a8)
-#define panic ((void (*)(const char *, ...))0x100008d28)
+#define panic ((void (*)(const char *, const char *, ...))0x100008d28)
 
 #define platform_get_boot_device ((bool (*)(int, int *, int *, int *))0x10000796c)
 #define platform_enable_boot_interface ((void (*)(int, int, int))0x100007a10)
 #define lookup_image_in_bdev ((void *(*)(const char *))0x100001A4C)
 #define flash_nand_init ((uint64_t (*)(int))0x100003a84)
+
+#define clock_gate ((void (*)(int, bool))0x1000032C4)
+#define identity_map_ro ((void (*)(uint64_t, uint64_t))0x100001628)
+#define identity_map_rw ((void (*)(uint64_t, uint64_t))0x100001600)
+#define identity_map_rx ((void (*)(uint64_t, uint64_t))0x100001614)
 
 #endif

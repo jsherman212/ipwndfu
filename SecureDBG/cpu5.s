@@ -79,7 +79,31 @@ _cpu5_iorvbar:
     mov w1, #0x1
     str w1, [x0]
 
+    ; adrp x0, _cpu5_debug@PAGE
+    ; add x0, x0, _cpu5_debug@PAGEOFF
+    ; mov w1, #0x4141
+    ; str w1, [x0]
+
     b _debugger_tick
 
 .global _cpu5_init_done
 _cpu5_init_done: .dword 0x0
+
+.global _mmu_disable
+_mmu_disable:
+    mrs x0, sctlr_el1
+    msr sctlr_el1, xzr
+    ; mrs x0, sctlr_el1
+    ; and x0, x0, #~0x1
+    ; msr sctlr_el1, x0
+    isb sy
+    ret
+
+.global _mmu_enable
+_mmu_enable:
+    ; mrs x0, sctlr_el1
+    ; orr x0, x0, #0x1
+    ; msr sctlr_el1, x0
+    msr sctlr_el1, x0
+    isb sy
+    ret

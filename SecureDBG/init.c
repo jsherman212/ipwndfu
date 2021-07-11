@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "debugger_log.h"
+#include "panic.h"
 #include "SecureROM_offsets.h"
 #include "structs.h"
 
@@ -13,95 +14,88 @@ asm(".section __TEXT,__romreloc\n"
     ".space 0x20000, 0x0\n"
     ".section __TEXT,__text\n");
 
-void dcache_clean_PoU(void *address, size_t size){
-    const size_t cache_line_size = 64;
-
-    size = (size + cache_line_size) & ~(cache_line_size - 1);
-
-    uint64_t start = ((uint64_t)address & ~(cache_line_size - 1));
-    uint64_t end = start + size;
-
-    asm volatile("isb sy");
-
-    do {
-        asm volatile(""
-                "dc cvau, %0\n"
-                "dsb ish\n"
-                "isb sy\n"
-                : : "r" (start));
-
-        start += cache_line_size;
-    } while (start < end);
-}
-
-void icache_invalidate_PoU(void *address, size_t size){
-    const size_t cache_line_size = 64;
-
-    size = (size + cache_line_size) & ~(cache_line_size - 1);
-
-    uint64_t start = ((uint64_t)address & ~(cache_line_size - 1));
-    uint64_t end = start + size;
-
-    asm volatile("isb sy");
-
-    do {
-        asm volatile(""
-                "ic ivau, %0\n"
-                "dsb ish\n"
-                "isb sy\n"
-                : : "r" (start));
-
-        start += cache_line_size;
-    } while (start < end);
-}
-
-struct frame {
-    struct frame *fp;
-    uint64_t lr;
-};
-
-static void backtrace(struct frame *f){
-    int fnum = 0;
-
-    while(f){
-        dbglog("\tFrame %d: fp 0x%llx lr 0x%llx\n", fnum,
-                (uint64_t)f->fp, f->lr);
-        f = f->fp;
-        fnum++;
-    }
-
-    dbglog("\n--- Could not unwind past frame %d\n", fnum - 1);
-}
-
-__attribute__ ((noreturn)) static void panic_hook(const char *fmt, ...){
-    /* va_list args; */
-    /* va_start(args, fmt); */
-
-    dbglog("panic called!!\n");
-    void *caller = __builtin_return_address(0);
-
-    uint64_t mpidr;
-    asm volatile("mrs %0, mpidr_el1" : "=r" (mpidr));
-    uint8_t curcpu = mpidr & 0xff;
-
-    va_list args;
-    va_start(args, fmt);
-    dbglog("\npanic(cpu %d caller %p): ", curcpu, caller);
-    /* uart_vprintf(fmt, args); */
-    dbglog("\n");
-    va_end(args);
-
-    backtrace(__builtin_frame_address(1));
-
-    for(;;);
-}
 
 /* L3 page tables for relocated ROM */
 /* XXX the MMU doesn't seem to like reading from AOP SRAM for ptes */
-/* asm(".section __TEXT,__romrelocptes\n" */
-/*     ".align 14\n" */
-/*     ".space 0x4000, 0x0\n" */
-/*     ".section __TEXT,__text\n"); */
+asm(".section __TEXT,__romrelocptes\n"
+    ".align 14\n"
+    ".space 0x4000, 0x0\n"
+    ".section __TEXT,__text\n");
+
+asm(".section __TEXT,__romrelocptes2\n"
+    ".align 14\n"
+    ".space 0x4000, 0x0\n"
+    ".section __TEXT,__text\n");
+
+static void aop_sram_pte_test(void){
+    extern volatile uint64_t __romrelocptesTEST[] asm("section$start$__TEXT$__romrelocptes2");
+    volatile uint64_t *relocptesp = (volatile uint64_t *)__romrelocptesTEST;
+    volatile uint64_t *relocptesend = relocptesp + (0x20000 / 0x4000);
+
+    dbglog("[AOP SRAM] PTEs for relocated ROM: mapping [0x102000000, 0x104000000)\n");
+
+    uint64_t oa = (uint64_t)__romreloc_start;
+    /* uint64_t newl2entry = ((uint64_t)relocptesp & 0xffffffffc000) | */
+    /*     (1 << 1) | (1 << 0); */
+    /* uint64_t newl2entry = ((uint64_t)relocptesp & 0xffffffffc000) | */
+    /*     (1 << 1) | (1 << 0); */
+    uint64_t newl2entry = 0x141414003;
+
+    /* newl2entry |= (1uLL << 63);//NS */
+
+    dbglog("%s: new L2 entry will be %#llx\n", __func__, newl2entry);
+
+    dbglog("%s: new ROM PTEs start @ %#llx and end @ %#llx\n", __func__,
+            (uint64_t)relocptesp, (uint64_t)relocptesend);
+
+    while(relocptesp < relocptesend){
+        /* PTE template:
+         *  ign: 0
+         *  Bits[58:55]: 0
+         *  XN: 0
+         *  PXN: 0
+         *  HINT: 0
+         *  Bits[51:48]: 0
+         *  OutputAddress: oa
+         *  nG: 0
+         *  AF: 1
+         *  SH: 2
+         *  AP: priv=read-write, user=no-access
+         *  NS: 0
+         *  AttrIdx: 0 (device memory)
+         *  V: 1
+         */
+        /* uint64_t pte = oa | (1 << 10) | (2 << 8) | (1 << 1) | (1 << 0); */
+        /* NS bit set does not panic for malloc'ed PTEs, does with AOP SRAM PTEs */
+        /* 0 shareability does not panic for malled PTEs, does with AOP SRAM PTEs */
+        uint64_t pte = oa;
+        pte |= (1 << 10);//AF
+        pte |= (2 << 8); //shareability
+        /* pte |= (0 << 8); //shareability */
+        /* pte |= (0 << 5); //NS */
+        pte |= (1 << 5); //NS
+        pte |= (0 << 2); //attridx
+        /* pte |= (1 << 2); //attridx */
+        pte |= (1 << 1);//always 1
+        pte |= (1 << 0);//valid
+
+        dbglog("%s: New PTE for %#llx: %#llx\n", __func__,
+                (uint64_t)relocptesp, pte);
+
+        *relocptesp = pte;
+
+        /* dcache_clean_and_invalidate_PoC(relocptesp, sizeof(*relocptesp)); */
+        asm volatile("dsb sy");
+        asm volatile("isb sy");
+
+        oa += 0x4000;
+        relocptesp++;
+    }
+
+
+    /* XXX For testing with 0x102000000 - 0x104000000 */
+    *(uint64_t *)0x18000c408 = newl2entry;
+}
 
 bool init(void){
     /* Set up the logging system before anything else */
@@ -124,7 +118,7 @@ bool init(void){
      * aligned. Instead, we'll create a new L3 table that the original L2
      * entry will point to so we have much finer control over output
      * addresses. */
-    /* extern volatile uint64_t __romrelocptes[] asm("section$start$__TEXT$__romrelocptes"); */
+    extern volatile uint64_t __romrelocptes[] asm("section$start$__TEXT$__romrelocptes");
 
     /* New L2 TTE:
      *  NS: 0
@@ -142,6 +136,7 @@ bool init(void){
      * this returned pointer is page aligned. XXX This is really stupid and
      * I'd like to figure this out asap */
     volatile uint64_t *relocptesp = (volatile uint64_t *)malloc(0x4050);
+    /* volatile uint64_t *relocptesp = (volatile uint64_t *)__romrelocptes; */
 
     if(!relocptesp){
         dbglog("%s: malloc failed\n", __func__);
@@ -150,6 +145,8 @@ bool init(void){
 
     while((uintptr_t)relocptesp & 0x3fff)
         relocptesp++;
+
+    dbglog("[AP SRAM] PTEs for relocated ROM: remapping [0x100000000, 0x102000000)\n");
 
     volatile uint64_t *relocptesend = relocptesp + (0x20000 / 0x4000);
 
@@ -180,6 +177,18 @@ bool init(void){
          *  V: 1
          */
         uint64_t pte = oa | (1 << 10) | (2 << 8) | (1 << 1) | (1 << 0);
+        /* NS bit set does not panic for malloc'ed PTEs, does with AOP SRAM PTEs */
+        /* 0 shareability does not panic for malled PTEs, does with AOP SRAM PTEs */
+        /* uint64_t pte = oa; */
+        /* pte |= (1 << 10);//AF */
+        /* pte |= (2 << 8); //shareability */
+        /* /1* pte |= (0 << 8); //shareability *1/ */
+        /* /1* pte |= (0 << 5); //NS *1/ */
+        /* pte |= (1 << 5); //NS */
+        /* /1* pte |= (0 << 2); //attridx *1/ */
+        /* pte |= (1 << 2); //attridx */
+        /* pte |= (1 << 1);//always 1 */
+        /* pte |= (1 << 0);//valid */
 
         dbglog("%s: New PTE for %#llx: %#llx\n", __func__,
                 (uint64_t)relocptesp, pte);
@@ -196,6 +205,12 @@ bool init(void){
     /* Do the write now, since everything has been setup if we're here */
     *(uint64_t *)0x18000c400 = newl2entry;
 
+
+    /* XXX TEST: Map the ROM again at 0x102000000 onwards, but with AOP
+     * SRAM PTEs */
+    aop_sram_pte_test();
+
+
     /* Also mark the original TTE for AOP SRAM as rwx, so cpu5
      * doesn't panic when we set the MMU bit in its SCTLR_EL1 */
     /* *(uint64_t *)0x18000c8d0 = 0x234000421; */
@@ -207,6 +222,35 @@ bool init(void){
     asm volatile("isb sy");
     asm volatile("tlbi vmalle1");
     asm volatile("isb sy");
+
+    extern void mmu_enable(uint64_t);
+    extern uint64_t mmu_disable(void);
+
+    int a = 0x41;
+    uint64_t old_sctlr = mmu_disable();
+    a = 0xfe;
+    mmu_enable(old_sctlr);
+    dbglog("%s: a %#x\n", __func__, a);
+
+    /* int a = 0x41; */
+
+    /* mmu_disable(); */
+
+    /* a = 0xfe; */
+
+    /* mmu_enable(); */
+
+    /* dbglog("%s: a %#x\n", __func__, a); */
+
+    /* uint32_t *test = (uint32_t *)0x102000000; */
+    /* uint64_t res = 0x4142434444434241; */
+
+    /* res = at_s1e1r(test); */
+
+    /* dbglog("%s: read test %#llx\n", __func__, res); */
+
+
+    /* return true; */
 
     /* int a1 = 0, a2 = 0, a3 = 0; */
     /* bool res = platform_get_boot_device(0, &a1, &a2, &a3); */
@@ -239,6 +283,20 @@ bool init(void){
 
     /* After this point, ROM instructions are patchable. Let's bring
      * up CPU5 */
+    /* Hook panic */
+    uint32_t *panicp = (uint32_t *)panic;
+
+    /* LDR X16, #0x8 */
+    panicp[0] = 0x58000050;
+    /* BR X16 */
+    panicp[1] = 0xd61f0200;
+    panicp[2] = (uint32_t)_panic;
+    panicp[3] = (uint32_t)((uint64_t)_panic >> 32);
+
+    dcache_clean_PoU(panicp, 4*sizeof(uint32_t));
+    icache_invalidate_PoU(panicp, 4*sizeof(uint32_t));
+
+    dbglog("%s: panic hook installed\n", __func__);
 
     /* Ensure CPU5's debug registers can be written to */
     uint64_t cpu5_coresight = 0x208510000;
@@ -289,24 +347,6 @@ bool init(void){
 /*     dbglog("%#llx %#llx %#llx %#llx %#llx %#llx %#llx\n", cpu5_debug64[0], cpu5_debug64[1], */
 /*             cpu5_debug64[2], cpu5_debug64[3], cpu5_debug64[4]); */
 
-
-    /* Hook panic */
-    uint32_t *panicp = (uint32_t *)panic;
-    /* *(uint64_t *)panicp = (uint64_t)panic_hook; */
-
-    /* panicp[0] = *(uint32_t *)&panic_hook; */
-    /* panicp[1] = *(uint32_t *)(&panic_hook + 1); */
-    /* LDR X16, #0x8 */
-    panicp[0] = 0x58000050;
-    /* BR X16 */
-    panicp[1] = 0xd61f0200;
-    panicp[2] = (uint32_t)panic_hook;
-    panicp[3] = (uint32_t)((uint64_t)panic_hook >> 32);
-
-    dcache_clean_PoU(panicp, 4*sizeof(uint32_t));
-    icache_invalidate_PoU(panicp, 4*sizeof(uint32_t));
-
-    dbglog("%s: panic hook installed\n", __func__);
 
     return true;
 }

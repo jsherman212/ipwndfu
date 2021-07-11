@@ -266,3 +266,85 @@ void aop_sram_vsnprintf(volatile char *buf, size_t n, const char *fmt,
     if(left > 0)
         *bufp = '\0';
 }
+
+__attribute__ ((naked)) uint64_t at_s1e1r(void *addr){
+    asm(""
+        "at s1e1r, x0\n"
+        "isb sy\n"
+        "mrs x0, par_el1\n"
+        "ret\n"
+       );
+}
+
+__attribute__ ((naked)) uint64_t at_s1e1w(void *addr){
+    asm(""
+        "at s1e1w, x0\n"
+        "isb sy\n"
+        "mrs x0, par_el1\n"
+        "ret\n"
+       );
+}
+
+void dcache_clean_PoU(void *address, size_t size){
+    const size_t cache_line_size = 64;
+
+    size = (size + cache_line_size) & ~(cache_line_size - 1);
+
+    uint64_t start = ((uint64_t)address & ~(cache_line_size - 1));
+    uint64_t end = start + size;
+
+    asm volatile("isb sy");
+
+    do {
+        asm volatile(""
+                "dc cvau, %0\n"
+                "dsb ish\n"
+                "isb sy\n"
+                : : "r" (start));
+
+        start += cache_line_size;
+    } while (start < end);
+}
+
+void dcache_clean_and_invalidate_PoC(void *address, size_t size){
+    const size_t cache_line_size = 64;
+
+    if(size & (cache_line_size - 1))
+        size = (size + cache_line_size) & ~(cache_line_size - 1);
+
+    uint64_t start = ((uint64_t)address & ~(cache_line_size - 1));
+    uint64_t end = start + size;
+
+    asm volatile("isb sy");
+
+    do {
+        asm volatile(""
+                "dc civac, %0\n"
+                "dsb ish\n"
+                "isb sy\n"
+                : : "r" (start));
+
+        start += cache_line_size;
+    } while (start < end);
+}
+
+void icache_invalidate_PoU(void *address, size_t size){
+    const size_t cache_line_size = 64;
+
+    size = (size + cache_line_size) & ~(cache_line_size - 1);
+
+    uint64_t start = ((uint64_t)address & ~(cache_line_size - 1));
+    uint64_t end = start + size;
+
+    asm volatile("isb sy");
+
+    do {
+        asm volatile(""
+                "ic ivau, %0\n"
+                "dsb ish\n"
+                "isb sy\n"
+                : : "r" (start));
+
+        start += cache_line_size;
+    } while (start < end);
+}

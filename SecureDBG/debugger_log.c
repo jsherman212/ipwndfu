@@ -5,7 +5,9 @@
 #include <sys/cdefs.h>
 
 #include "common.h"
+#include "doprnt.h"
 #include "SecureROM_offsets.h"
+#include "spinlock.h"
 
 /* Give a page for logbuf, msgbuf, and retbuf */
 asm(".section __TEXT,__logs\n"
@@ -30,21 +32,40 @@ static GLOBAL(char *msgbuf) = NULL;
  * pointers for whatever reason */
 static GLOBAL(char *retbuf) = NULL;
 
-__printflike(1, 2) void dbglog(const char *fmt, ...){
+static GLOBAL(struct doprnt_info di);
+
+static void dbglog_putc(char c, struct doprnt_info *di){
+    if(di->remaining-- > 0){
+        *di->buf++ = c;
+        di->written++;
+    }
+}
+
+static void _dbglog(const char *fmt, va_list args){
     if(loglen == logsz)
         return;
-
-    va_list args;
-    va_start(args, fmt);
 
     /* Logs of size 0x4000 are gonna have their last char truncated,
      * but when would I ever log a single string of that size? */
     aop_sram_vsnprintf(msgbuf, logsz, fmt, args);
 
-    va_end(args);
+    /* struct doprnt_info di = { */
+    /*     .buf = msgbuf, */
+    /*     .remaining = logsz, */
+    /*     .written = 0, */
+    /* }; */
+    /* di.buf = msgbuf; */
+    /* di.remaining = logsz; */
+    /* di.written = 0; */
+
+    /* doprnt(fmt, dbglog_putc, &di, args); */
+
+    /* if(di.remaining > 0) */
+    /*     *di.buf = '\0'; */
 
     char *msgp = msgbuf;
     size_t msglen = aop_sram_strlen(msgp);
+    /* size_t msglen = di.written; */
 
     if(msglen == 0)
         return;
@@ -109,6 +130,25 @@ __printflike(1, 2) void dbglog(const char *fmt, ...){
         writep += canwrite;
         loglen += canwrite;
     }
+}
+
+static GLOBAL(splck_t g_dbglog_lck) = SPLCK_INITIALIZER;
+
+void vdbglog(const char *fmt, va_list args){
+    /* splck_lck(&g_dbglog_lck); */
+    _dbglog(fmt, args);
+    /* splck_done(&g_dbglog_lck); */
+}
+
+__printflike(1, 2) void dbglog(const char *fmt, ...){
+    va_list args;
+    va_start(args, fmt);
+
+    /* splck_lck(&g_dbglog_lck); */
+    _dbglog(fmt, args);
+    /* splck_done(&g_dbglog_lck); */
+
+    va_end(args);
 }
 
 /* Read out the log in 0x800-byte increments. This function is meant to be

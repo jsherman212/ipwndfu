@@ -16,12 +16,24 @@ all : debugger
 common.o : common.c common.h
 	$(CC) $(CFLAGS) common.c -c
 
+doprnt.o : doprnt.c doprnt.h
+	$(CC) $(CFLAGS) doprnt.c -c
+
+dram.o : dram.c dram.h
+	$(CC) $(CFLAGS) dram.c -c
+
 debugger_log.o : debugger_log.c debugger_log.h
 	$(CC) $(CFLAGS) debugger_log.c -c
 
 init.o : init.c
 	$(CC) $(CFLAGS) init.c -c
 
-debugger : common.o cpu5.s debugger_log.o debugger.c init.o
-	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) common.o cpu5.s debugger_log.o debugger.c init.o -o debugger
+panic.o : panic.c
+	$(CC) $(CFLAGS) panic.c -c
+
+spinlock.o : spinlock.c
+	$(CC) $(CFLAGS) spinlock.c -c
+
+debugger : common.o cpu5.s doprnt.o debugger_log.o debugger.c dram.o init.o panic.o spinlock.o
+	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) common.o cpu5.s debugger_log.o doprnt.o debugger.c dram.o init.o panic.o spinlock.o -o debugger
 	dd if=debugger of=debugger.bin bs=1 skip=0x8000

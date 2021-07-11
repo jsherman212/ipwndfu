@@ -2,6 +2,7 @@
 #define COMMON
 
 #include <stdarg.h>
+#include <stddef.h>
 
 /* Make sure global variables go into __TEXT. Otherwise, their initial
  * values are useless, since clang sticks them into bss and they'll end
@@ -15,5 +16,11 @@ void aop_sram_memcpy(volatile void *, volatile void *, size_t);
 void aop_sram_strcpy(volatile char *, const char *);
 size_t aop_sram_strlen(volatile char *);
 void aop_sram_vsnprintf(volatile char *, size_t, const char *, va_list);
+
+__attribute__ ((naked)) uint64_t at_s1e1r(void *);
+__attribute__ ((naked)) uint64_t at_s1e1w(void *);
+void dcache_clean_PoU(void *, size_t);
+void dcache_clean_and_invalidate_PoC(void *, size_t);
+void icache_invalidate_PoU(void *, size_t);
 
 #endif
