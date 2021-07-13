@@ -24,55 +24,22 @@ static uint8_t curcpu(void){
 
 extern __attribute__ ((noreturn)) void debugger_tick(void);
 
-extern void mmu_enable(uint64_t);
-extern uint64_t mmu_disable(void);
+/* extern void mmu_enable(uint64_t); */
+/* extern uint64_t mmu_disable(void); */
 
 __attribute__ ((noreturn)) void debugger_tick(void){
     /* dbglog("%s: hello from cpu%d!\n", __func__, (uint32_t)curcpu()); */
-    /* dbglog("yoo\n"); */
-    /* for(;;); */
+    dbglog("yoo\n");
 
-    /* uint64_t tcr, ttbr0; */
-    /* asm volatile("mrs %0, tcr_el1" : "=r" (tcr)); */
-    /* asm volatile("mrs %0, ttbr0_el1" : "=r" (ttbr0)); */
-    /* dbglog("cpu5: TCR_EL1: %#llx TTBR0_EL1: %#llx\n", tcr, ttbr0); */
+    volatile uint32_t *test = (volatile uint32_t *)0x180200000;
+    uint32_t res = 0x41424344;
 
-    /* for(;;); */
-    int a = 0x41;
-    uint64_t old_sctlr = mmu_disable();
-    a = 0xff;
-    mmu_enable(old_sctlr);
-    dbglog("%s: a %#x\n", __func__, a);
+    *test = 0x41;
+    res = *test;
+    dbglog("%s: read back %#x from %p\n", __func__, res, test);
+    /* panic("", "We reached here!!"); */
 
     for(;;);
-
-    for(;;){
-        if(SecureDBG_init_flag){
-            extern volatile uint64_t __romrelocptesTEST[] asm("section$start$__TEXT$__romrelocptes2");
-            volatile uint64_t *relocptesp = (volatile uint64_t *)__romrelocptesTEST;
-            /* dcache_clean_and_invalidate_PoC(relocptesp, 0x40); */
-            uint32_t *test = (uint32_t *)0x102000000;
-            uint64_t res = 0x4142434444434241;
-
-            /* res = at_s1e1r(test); */
-            res  = *(uint32_t *)test;
-
-            dbglog("%s: read test %#llx\n", __func__, res);
-            /* bool res = dram_bringup(); */
-            
-            /* /1* panic("", "%s: DRAM bringup res %d\n", __func__, res); *1/ */
-            /* dbglog("%s: DRAM bringup res %d\n", __func__, res); */
-
-            for(;;);
-            /* if(res){ */
-            /*     volatile uint32_t *dram = (volatile uint32_t *)0x800000000; */
-            /*     identity_map_rw((uint64_t)dram, 0x4000); */
-            /*     dbglog("%s: dram read %#x\n", __func__, *dram); */
-            /*     *dram = 0x41424344; */
-            /*     dbglog("%s: dram read %#x\n", __func__, *dram); */
-            /* } */
-        }
-    }
 }
 
 enum {
@@ -94,7 +61,6 @@ static int SecureDBG_usb_interface_request_handler(struct usb_request_packet *re
 
     if(!is_SecureDBG_request(request))
         return ipwndfu_usb_interface_request_handler(req, bufout);
-
 
     if(request == SecureDBG_LOG_READ){
         /* dbglog("%s: sending back log (bufout=%#llx)...\n", __func__, */
@@ -119,8 +85,6 @@ static int SecureDBG_usb_interface_request_handler(struct usb_request_packet *re
  * USB interface callback to our own, set up a logging system, and kickstart
  * a debugger CPU. */
 uint64_t debugger_entryp(void){
-    /* *(volatile uint32_t *)0x2352bc000 &= 0xfffffffe; */
-
     if(SecureDBG_init_flag)
         return 0;
 
@@ -131,8 +95,8 @@ uint64_t debugger_entryp(void){
 
     debuggee_cpu = curcpu();
 
-    dbglog("%s: hello from SecureROM! We are CPU %d\n", __func__,
-            debuggee_cpu);
+    /* dbglog("%s: hello from SecureROM! We are CPU %d\n", __func__, */
+    /*         debuggee_cpu); */
 
     if(debuggee_cpu == debugger_cpu){
         dbglog("%s: why are we CPU5?\n", __func__);
@@ -140,11 +104,6 @@ uint64_t debugger_entryp(void){
     }
 
     SecureDBG_init_flag = true;
-
-    /* uint64_t tcr, ttbr0; */
-    /* asm volatile("mrs %0, tcr_el1" : "=r" (tcr)); */
-    /* asm volatile("mrs %0, ttbr0_el1" : "=r" (ttbr0)); */
-    /* dbglog("cpu0: TCR_EL1: %#llx TTBR0_EL1: %#llx\n", tcr, ttbr0); */
 
     return 0;
 }

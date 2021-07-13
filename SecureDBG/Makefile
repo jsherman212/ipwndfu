@@ -34,6 +34,6 @@ panic.o : panic.c
 spinlock.o : spinlock.c
 	$(CC) $(CFLAGS) spinlock.c -c
 
-debugger : common.o cpu5.s doprnt.o debugger_log.o debugger.c dram.o init.o panic.o spinlock.o
-	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) common.o cpu5.s debugger_log.o doprnt.o debugger.c dram.o init.o panic.o spinlock.o -o debugger
+debugger : common.o cpu5.s doprnt.o debugger_log.o debugger.c dram.o init.o panic.o spinlock.o sram.s
+	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) common.o cpu5.s debugger_log.o doprnt.o debugger.c dram.o init.o panic.o spinlock.o sram.s -o debugger
 	dd if=debugger of=debugger.bin bs=1 skip=0x8000

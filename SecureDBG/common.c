@@ -348,3 +348,13 @@ void icache_invalidate_PoU(void *address, size_t size){
         start += cache_line_size;
     } while (start < end);
 }
+
+__attribute__ ((optnone)) void memcpy32(void *dst, const void *src, size_t n){
+    n /= sizeof(uint32_t);
+
+    uint32_t *dst32 = dst;
+    const uint32_t *src32 = src;
+
+    for(int i=0; i<n; i++)
+        dst32[i] = src32[i];
+}

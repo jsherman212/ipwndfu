@@ -15,6 +15,7 @@
 #define memset ((void *(*)(void *, int, size_t))0x10000ec00)
 #define memmove ((void *(*)(void *, void *, size_t))0x10000e9d0)
 #define reboot ((void (*)(void))0x100007908)
+#define reboot2 ((void (*)(void))0x100002754)
 #define sleep ((void (*)(uint32_t))0x1000097c0)
 #define usb_task_entrypoint ((void (*)(void *))0x100004d84)
 #define usb_core_do_io ((void (*)(int, void *, size_t, void *))0x10000b9a8)
