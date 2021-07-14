@@ -1,4 +1,4 @@
-all: armv6 armv7 arm64 SecureDBG
+all: armv6 armv7 arm64 earlypongo
 
 armv6:
 	arm-none-eabi-as -march=armv6 -mthumb --fatal-warnings -o bin/steaks4uce-shellcode.o src/steaks4uce-shellcode.S
@@ -51,7 +51,7 @@ arm64:
 	gobjcopy -O binary -j .text bin/t8015_shellcode_arm64.o bin/t8015_shellcode_arm64.bin
 	rm bin/t8015_shellcode_arm64.o
 
-SecureDBG : 
-	$(MAKE) -C SecureDBG
+earlypongo : 
+	$(MAKE) -C earlypongo
 
-.PHONY : SecureDBG
+.PHONY : earlypongo
