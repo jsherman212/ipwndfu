@@ -6,7 +6,8 @@ CFLAGS += -fno-stack-protector -DFORTIFY_SOURCE=0 -O0 -nostdlib
 FINAL_CFLAGS = -e _earlypongo_bootstrap
 
 # T8015 AOP SRAM base is at 0x234e00000
-LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x234e00000 -Wl,-preload
+# LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x234e00000 -Wl,-preload
+LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x180200000 -Wl,-preload
 
 all : earlypongo
 
@@ -19,10 +20,13 @@ doprnt.o : doprnt.c doprnt.h
 debugger_log.o : debugger_log.c debugger_log.h
 	$(CC) $(CFLAGS) debugger_log.c -c
 
+fb.o : fb.c
+	$(CC) $(CFLAGS) fb.c -c
+
 panic.o : panic.c
 	$(CC) $(CFLAGS) panic.c -c
 
-earlypongo : asm.s common.o doprnt.o debugger_log.o bootstrap.c panic.o
-	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) asm.s common.o debugger_log.o doprnt.o bootstrap.c panic.o -o earlypongo
+earlypongo : asm.s common.o cpu5.s doprnt.o debugger_log.o bootstrap.c fb.o panic.o
+	$(CC) $(CFLAGS) $(FINAL_CFLAGS) $(LDFLAGS) asm.s common.o cpu5.s debugger_log.o doprnt.o bootstrap.c fb.o panic.o -o earlypongo
 	# This does not work for some dd's TODO
 	dd if=earlypongo of=earlypongo.bin bs=1 skip=0x8000

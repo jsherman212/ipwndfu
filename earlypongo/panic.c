@@ -34,6 +34,8 @@ static void backtrace(struct frame *f){
     dbglog("\n--- Could not unwind past frame %d\n", fnum - 1);
 }
 
+GLOBAL(uint32_t esr) = 0x41414141;
+GLOBAL(uint64_t far) = 0x4242424243434343;
 __attribute__ ((noreturn)) void _panic(const char *a1, const char *fmt, ...){
     nested_panic_check();
 
@@ -44,6 +46,9 @@ __attribute__ ((noreturn)) void _panic(const char *a1, const char *fmt, ...){
     asm volatile("mov %0, x21" : "=r" (x21));
 
     struct rstate *state = (struct rstate *)x21;
+
+    esr = state->esr;
+    far = state->far;
 
     void *caller = __builtin_return_address(0);
 

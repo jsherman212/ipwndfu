@@ -1,4 +1,5 @@
-    #define SecureDBG_cmd #0xfffe
+#define earlypongo_cmd #0xfffe
+
 .text
 
 .pool
@@ -26,23 +27,17 @@ jump_back:
   MOV  X19, X0
   LDR  X20, =LOAD_ADDRESS
 
-    mov w1, SecureDBG_cmd
+    mov w1, earlypongo_cmd 
     ldrh w2, [x19, #2]
     cmp w1, w2
     b.eq Linit
-    ; cmp w1, #0x5000
-    ; b.eq Ldie
     b Lnormal
-
-; Ldie:
-;     brk #0x4141
 
 Linit:
     /* X0 is the beginning of our rwx view of AOP SRAM. We already uploaded
     the debugger code, so it lives inside io_buffer. memcpy it to AOP SRAM.
     debugger_entryp always lives at the beginning of the copied code. */
     /* X1 == io_buffer */
-    ; mov x0, #0x900000000
     mov x0, #0x200000000
     movk x0, #0x34e0, lsl #16
     mov x7, x0

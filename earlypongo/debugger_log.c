@@ -7,7 +7,6 @@
 #include "common.h"
 #include "doprnt.h"
 #include "SecureROM_offsets.h"
-#include "spinlock.h"
 
 /* Give a page for logbuf, msgbuf, and retbuf */
 asm(".section __TEXT,__logs\n"
@@ -26,10 +25,6 @@ static GLOBAL(size_t retbufsz) = 0x800;
 static GLOBAL(size_t loglen) = 0;
 
 static GLOBAL(char *msgbuf) = NULL;
-
-/* We re-use the same buffer for returning log contents to the caller.
- * This is malloc'ed because usb_core_do_io does not like AOP SRAM
- * pointers for whatever reason */
 static GLOBAL(char *retbuf) = NULL;
 
 static GLOBAL(struct doprnt_info di);
@@ -44,6 +39,8 @@ static void dbglog_putc(char c, struct doprnt_info *di){
 static void _dbglog(const char *fmt, va_list args){
     if(loglen == logsz)
         return;
+
+    /* vsnprintf(msgbuf, logsz, fmt, args); */
 
     /* Logs of size 0x4000 are gonna have their last char truncated,
      * but when would I ever log a single string of that size? */
@@ -62,6 +59,7 @@ static void _dbglog(const char *fmt, va_list args){
 
     if(di.remaining > 0)
         *di.buf = '\0';
+
 
     char *msgp = msgbuf;
     /* size_t msglen = aop_sram_strlen(msgp); */
@@ -132,7 +130,7 @@ static void _dbglog(const char *fmt, va_list args){
     }
 }
 
-static GLOBAL(splck_t g_dbglog_lck) = SPLCK_INITIALIZER;
+/* static GLOBAL(splck_t g_dbglog_lck) = SPLCK_INITIALIZER; */
 
 void vdbglog(const char *fmt, va_list args){
     /* splck_lck(&g_dbglog_lck); */
@@ -228,13 +226,11 @@ void loginit(void){
     extern volatile uint64_t __logs_start[] asm("section$start$__TEXT$__logs");
 
     logbuf = (char *)__logs_start;
-    logend = logbuf + logsz;
-    msgbuf = logend;
-    retbuf = msgbuf + logsz;
+    logend = logbuf + logsz;//+0x4000
+    msgbuf = logend;//+0x4000
+    retbuf = msgbuf + logsz;//+0x8000
 
     readp = writep = logbuf;
 
     log_inited = true;
-
-    return;
 }

@@ -119,8 +119,6 @@ _relocate_and_jump:
     isb sy
     sub x8, x8, x10
     add x30, x8, x9
-
-    ; mov x30, x8
     ret
 
 /* Returns old SCTLR */
