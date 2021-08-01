@@ -107,22 +107,6 @@ _sram_expand:
     mov x30, x8
     ret
 
-.global _relocate_and_jump
-_relocate_and_jump:
-    mov x8, x30         /* x8 is something like 0x234E00xxx */
-    mov x9, x0          /* x9 is 0x180200000 */
-    mov x10, x1         /* x10 is address of first insn of earlypongo_entryp */
-    sub x2, x2, x1
-    bl _memcpy8
-    dsb sy
-    ic iallu
-    isb sy
-    sub x8, x8, x10
-    add x30, x8, x9
-
-    ; mov x30, x8
-    ret
-
 /* Returns old SCTLR */
 _mmu_disable:
     mrs x0, sctlr_el1

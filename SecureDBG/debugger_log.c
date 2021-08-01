@@ -47,25 +47,25 @@ static void _dbglog(const char *fmt, va_list args){
 
     /* Logs of size 0x4000 are gonna have their last char truncated,
      * but when would I ever log a single string of that size? */
-    /* aop_sram_vsnprintf(msgbuf, logsz, fmt, args); */
+    aop_sram_vsnprintf(msgbuf, logsz, fmt, args);
 
     /* struct doprnt_info di = { */
     /*     .buf = msgbuf, */
     /*     .remaining = logsz, */
     /*     .written = 0, */
     /* }; */
-    di.buf = msgbuf;
-    di.remaining = logsz;
-    di.written = 0;
+    /* di.buf = msgbuf; */
+    /* di.remaining = logsz; */
+    /* di.written = 0; */
 
-    doprnt(fmt, dbglog_putc, &di, args);
+    /* doprnt(fmt, dbglog_putc, &di, args); */
 
-    if(di.remaining > 0)
-        *di.buf = '\0';
+    /* if(di.remaining > 0) */
+    /*     *di.buf = '\0'; */
 
     char *msgp = msgbuf;
-    /* size_t msglen = aop_sram_strlen(msgp); */
-    size_t msglen = di.written;
+    size_t msglen = aop_sram_strlen(msgp);
+    /* size_t msglen = di.written; */
 
     if(msglen == 0)
         return;
