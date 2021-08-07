@@ -166,6 +166,23 @@ static void install_panic_hook(void){
     icache_invalidate_PoU(panicp, 4*sizeof(uint32_t));
 }
 
+static uint32_t assemble_bl(uint64_t from, uint64_t to){
+    uint32_t imm26 = ((to - from) >> 2) & 0x3ffffff;
+    return (37u << 26) | imm26;
+}
+
+static void install_boot_tramp_hook(void){
+    extern void boot_tramp_hook(void *, void *);
+
+    uint64_t boot_tramp = 0x180018000;
+
+    *(uint32_t *)boot_tramp = assemble_bl(boot_tramp,
+            (uint64_t)boot_tramp_hook);
+
+    asm volatile("dsb sy");
+    asm volatile("isb sy");
+}
+
 /* Called from src/usb_0xA1_2_arm64.S. Here we map 4 more MB of SRAM from
  * the L2 cache. That SRAM is mapped from 0x180200000 - 0x180600000. We
  * place the pongo embedded in ourselves some point on that SRAM. We also
@@ -178,10 +195,7 @@ static void install_panic_hook(void){
 /* 1. Map 4 more MB of AP SRAM from L2 cache (0x180200000 - 0x180600000)
  * 2. Relocate ourselves to that SRAM ASAP because AOP SRAM is cursed. We'll
  *    stick ourselves at 0x180200000
- * 3. Copy ROM to that SRAM. We'll stick that at 0x1802
- * 4. Modify TTE that translates ROM virtual addresses to point to the ROM
- *    we just copied so ROM instructions are patchable
- * 5. Extract embedded pongoOS and stick it at 0x180300000
+ * 3. Embedded PongoOS ends up somewhere page aligned around 0x1802xxxxx
  * [...]
  */
 uint64_t earlypongo_bootstrap(void){
@@ -197,8 +211,8 @@ uint64_t earlypongo_bootstrap(void){
     /* From this point on we are off AOP SRAM and on AP SRAM */
     dcache_clean_and_invalidate_PoC((void *)0x180000000, 0x200000);
     icache_invalidate_PoU((void *)0x180000000, 0x200000);
-    patchable_rom();
-    install_panic_hook();
+    /* patchable_rom(); */
+    /* install_panic_hook(); */
     loginit();
 
     void *pcpage;
@@ -225,6 +239,7 @@ uint64_t earlypongo_bootstrap(void){
     /* asm volatile("dsb sy"); */
     /* asm volatile("isb sy"); */
 
+    install_boot_tramp_hook();
     boot();
 
     /* volatile uint32_t *a=(volatile uint32_t *)0x432188349298; */
