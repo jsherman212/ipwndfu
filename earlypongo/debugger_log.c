@@ -7,7 +7,6 @@
 #include "common.h"
 #include "doprnt.h"
 #include "SecureROM_offsets.h"
-#include "spinlock.h"
 
 /* Give a page for logbuf, msgbuf, and retbuf */
 asm(".section __TEXT,__logs\n"
@@ -132,21 +131,15 @@ static void _dbglog(const char *fmt, va_list args){
     }
 }
 
-static GLOBAL(splck_t g_dbglog_lck) = SPLCK_INITIALIZER;
-
 void vdbglog(const char *fmt, va_list args){
-    /* splck_lck(&g_dbglog_lck); */
     _dbglog(fmt, args);
-    /* splck_done(&g_dbglog_lck); */
 }
 
 __printflike(1, 2) void dbglog(const char *fmt, ...){
     va_list args;
     va_start(args, fmt);
 
-    /* splck_lck(&g_dbglog_lck); */
     _dbglog(fmt, args);
-    /* splck_done(&g_dbglog_lck); */
 
     va_end(args);
 }

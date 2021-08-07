@@ -4,11 +4,8 @@
 
 #include "common.h"
 #include "debugger_log.h"
-#include "dram.h"
-#include "init.h"
 #include "SecureROM_offsets.h"
 #include "structs.h"
-#include "synopsys_regs.h"
 
 enum {
     earlypongo_LOG_READ = 0x4000,
