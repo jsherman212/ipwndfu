@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "debugger_log.h"
+#include "panic.h"
 #include "SecureROM_offsets.h"
 #include "structs.h"
 
@@ -26,26 +27,143 @@ int earlypongo_usb_interface_request_handler(struct usb_request_packet *req,
     if(!is_earlypongo_request(request))
         return ipwndfu_usb_interface_request_handler(req, bufout);
 
-    /* XXX currently panics */
     if(request == earlypongo_LOG_READ){
-        /* dbglog("%s: sending back log (bufout=%#llx)...\n", __func__, */
-        /*         (uint64_t)bufout); */
-
         size_t len;
         char *log = getlog(&len);
 
         if(len == 0){
-            /* TODO not on AOP SRAM anymore but these functions still work */
-            /* TODO rename */
-            aop_sram_strcpy(log, "!NOLOG!");
+            log = "!NOLOG!";
             len = 7;
         }
 
-        aop_sram_memcpy(io_buffer, log, len);
+        memmove(io_buffer, log, len);
         usb_core_do_io(0x80, io_buffer, len, NULL);
     }
 
     return 0;
+}
+
+static void boot(void){
+    /* This is copied from ipwndfu */
+
+    uint64_t block1[8];
+    uint64_t block2[8];
+
+    memset(block1, 0, sizeof(block1));
+    memset(block2, 0, sizeof(block2));
+
+    uint64_t heap_state = 0x1800086A0;
+
+    block1[3] = heap_state;
+    block1[4] = 2;
+    block1[5] = 132;
+    block1[6] = 128;
+
+    block2[3] = heap_state;
+    block2[4] = 2;
+    block2[5] = 8;
+    block2[6] = 128;
+
+    uint8_t *heap_base = (uint8_t *)0x1801e8000;
+    uint64_t heap_write_offset = 0x5000;
+
+    memmove(heap_base + heap_write_offset, block1, sizeof(block1));
+    memmove(heap_base + heap_write_offset + 0x80, block2, sizeof(block2));
+    memmove(heap_base + heap_write_offset + 0x100, block2, sizeof(block2));
+    memmove(heap_base + heap_write_offset + 0x180, block2, sizeof(block2));
+
+    heap_write_hash(heap_base + heap_write_offset);
+    heap_write_hash(heap_base + heap_write_offset + 0x80);
+    heap_write_hash(heap_base + heap_write_offset + 0x100);
+    heap_write_hash(heap_base + heap_write_offset + 0x180);
+
+    heap_check_all();
+
+    uint64_t *bootstrap_task_lr = (uint64_t *)0x180015f88;
+    uint8_t *dfu_bool = (uint8_t *)0x1800085b0;
+
+    *bootstrap_task_lr = 0x10000188c;
+    *dfu_bool = 1;
+
+    void *dfu_state = (void *)0x1800085e0;
+
+    dfu_notify(dfu_state);
+}
+
+/* ROM code only takes up 8 pages */
+asm(".section __TEXT,__romreloc\n"
+    ".align 14\n"
+    ".space 0x20000, 0x0\n"
+    ".section __TEXT,__text\n");
+
+/* L3 page tables for relocated ROM */
+asm(".section __TEXT,__romrelocptes\n"
+    ".align 14\n"
+    ".space 0x4000, 0x0\n"
+    ".section __TEXT,__text\n");
+
+static void patchable_rom(void){
+
+    extern volatile uint64_t romreloc[] asm("section$start$__TEXT$__romreloc");
+    extern volatile uint64_t romrelocptes[] asm("section$start$__TEXT$__romrelocptes");
+
+    memmove((void *)romreloc, (void *)0x100000000, 0x20000);
+
+    volatile uint64_t *relocptesp = romrelocptes;
+    volatile uint64_t *relocptesend = relocptesp + (0x20000 / 0x4000);
+
+    uint64_t oa = (uint64_t)romreloc;
+    uint64_t newl2entry = ((uint64_t)relocptesp & 0xffffffffc000) |
+        (1 << 1) | (1 << 0);
+
+    while(relocptesp < relocptesend){
+        /* PTE template:
+         *  ign: 0
+         *  Bits[58:55]: 0
+         *  XN: 0
+         *  PXN: 0
+         *  HINT: 0
+         *  Bits[51:48]: 0
+         *  OutputAddress: oa
+         *  nG: 0
+         *  AF: 1
+         *  SH: 2
+         *  AP: priv=read-write, user=no-access
+         *  NS: 0
+         *  AttrIdx: 0 (device memory)
+         *  V: 1
+         */
+        uint64_t pte = oa | (1 << 10) | (2 << 8) | (1 << 1) | (1 << 0);
+
+        *relocptesp = pte;
+
+        asm volatile("dsb sy");
+        asm volatile("isb sy");
+
+        oa += 0x4000;
+        relocptesp++;
+    }
+
+    *(uint64_t *)0x18000c400 = newl2entry;
+
+    asm volatile("dsb sy");
+    asm volatile("isb sy");
+    asm volatile("tlbi vmalle1");
+    asm volatile("isb sy");
+}
+
+static void install_panic_hook(void){
+    uint32_t *panicp = (uint32_t *)panic;
+
+    /* LDR X16, #0x8 */
+    panicp[0] = 0x58000050;
+    /* BR X16 */
+    panicp[1] = 0xd61f0200;
+    panicp[2] = (uint32_t)_panic;
+    panicp[3] = (uint32_t)((uint64_t)_panic >> 32);
+
+    dcache_clean_PoU(panicp, 4*sizeof(uint32_t));
+    icache_invalidate_PoU(panicp, 4*sizeof(uint32_t));
 }
 
 /* Called from src/usb_0xA1_2_arm64.S. Here we map 4 more MB of SRAM from
@@ -79,6 +197,8 @@ uint64_t earlypongo_bootstrap(void){
     /* From this point on we are off AOP SRAM and on AP SRAM */
     dcache_clean_and_invalidate_PoC((void *)0x180000000, 0x200000);
     icache_invalidate_PoU((void *)0x180000000, 0x200000);
+    patchable_rom();
+    install_panic_hook();
     loginit();
 
     void *pcpage;
@@ -100,6 +220,15 @@ uint64_t earlypongo_bootstrap(void){
 
     uint64_t *v = (uint64_t *)0x180200000;
     *v = 0x55555555;
+
+    /* *(uint32_t *)0x180018000 = 0x14000000; */
+    /* asm volatile("dsb sy"); */
+    /* asm volatile("isb sy"); */
+
+    boot();
+
+    /* volatile uint32_t *a=(volatile uint32_t *)0x432188349298; */
+    /* *a=0; */
 
     return *v;
 }

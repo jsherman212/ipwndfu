@@ -35,6 +35,8 @@ static void backtrace(struct frame *f){
 }
 
 __attribute__ ((noreturn)) void _panic(const char *a1, const char *fmt, ...){
+    for(;;);
+
     nested_panic_check();
 
     dbglog("panic called!!\n");

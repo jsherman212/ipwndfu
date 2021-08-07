@@ -254,7 +254,7 @@ if __name__ == '__main__':
                 assert device.ctrl_transfer(0x21, 1, 0, 0, dbgrequest, 15000) == 0x800
 
                 try:
-                    response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 15000)
+                    response = device.ctrl_transfer(0xa1, 2, 0xfffe, 0, 8, 5000)
                     address = 0
                     for line in utilities.hex_dump(response, address).splitlines():
                         print '%x: %s' % (address, line[10:])

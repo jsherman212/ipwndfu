@@ -24,4 +24,8 @@
 #define vsnprintf ((int (*)(char *, size_t, const char *, va_list))0x10000e6a8)
 #define panic ((void (*)(const char *, const char *, ...))0x100008d28)
 
+#define heap_write_hash ((void (*)(void *))0x10000D4EC)
+#define heap_check_all ((void (*)(void))0x10000DB98)
+#define dfu_notify ((void (*)(void *))0x1000098B4)
+
 #endif
