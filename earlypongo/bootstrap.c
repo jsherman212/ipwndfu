@@ -22,7 +22,7 @@ static bool is_earlypongo_request(uint16_t req){
 /* Our USB interface callback will preserve the original functionality
  * by calling out to the code inside src/usb_0xA1_2_arm64.S if the
  * command doesn't match any in this file */
-static int earlypongo_usb_interface_request_handler(struct usb_request_packet *req,
+int earlypongo_usb_interface_request_handler(struct usb_request_packet *req,
         void *bufout){
     uint16_t request = req->wValue;
 
@@ -80,7 +80,8 @@ uint64_t earlypongo_bootstrap(void){
     sram_expand();
     relocate_and_jump((void *)0x180200000, text_start, text_end);
     /* From this point on we are off AOP SRAM and on AP SRAM */
-
+    dcache_clean_and_invalidate_PoC((void *)0x180000000, 0x200000);
+    icache_invalidate_PoU((void *)0x180000000, 0x200000);
     loginit();
 
     void *pcpage;
@@ -88,11 +89,20 @@ uint64_t earlypongo_bootstrap(void){
     dbglog("%s: alive after relocation execing on page @ %p\n",
             __func__, pcpage);
 
-    uint64_t *v = (uint64_t *)0x180200000;
-    /* *v = 0x55555555; */
+    /* Force clang to not stick a pointer to our USB handler onto the
+     * stack when we are still on AOP SRAM */
+    asm volatile(""
+            "adrp x8, _earlypongo_usb_interface_request_handler@PAGE\n"
+            "add x8, x8, _earlypongo_usb_interface_request_handler@PAGEOFF\n"
+            "mov x9, #0x8638\n"
+            "movk x9, #0x8000, lsl #16\n"
+            "movk x9, #1, lsl #32\n"
+            "str x8, [x9]\n"
+            "dsb sy\n"
+            "isb sy\n" : : : "x8", "x9");
 
-    /* XXX This likely needs to be rebased onto AP SRAM */
-    *(uint64_t *)usb_interface_request_handler = (uint64_t)earlypongo_usb_interface_request_handler;
+    uint64_t *v = (uint64_t *)0x180200000;
+    *v = 0x55555555;
 
     return *v;
 }

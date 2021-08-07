@@ -5,8 +5,7 @@ CFLAGS = -isysroot $(SDK) -arch arm64 -ffreestanding
 CFLAGS += -fno-stack-protector -DFORTIFY_SOURCE=0 -O0 -nostdlib
 FINAL_CFLAGS = -e _earlypongo_bootstrap
 
-# T8015 AOP SRAM base is at 0x234e00000
-LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x234e00000 -Wl,-preload
+LDFLAGS = -Wl,-order_file,sym_order -Wl,-image_base,0x180200000 -Wl,-preload
 
 all : earlypongo
 
